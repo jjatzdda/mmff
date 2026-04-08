@@ -3,81 +3,104 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Интерактивная карта с фильтрацией</title>
+    <title>Интерактивная карта — 2D и 3D Глобус</title>
     <!-- Подключаем библиотеку SheetJS для чтения Excel-файлов -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+    <!-- Three.js и OrbitControls для 3D-глобуса -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
     <style>
         /* ---------- Глобальные стили ---------- */
-        /* Обнуляем отступы и запрещаем скролл страницы */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            user-select: none; /* Запрет выделения текста при перетаскивании */
+            user-select: none;
         }
         body, html {
             width: 100%;
             height: 100%;
-            overflow: hidden;   /* Убираем полосы прокрутки */
-            background-color: #111; /* Фон на случай, если карта не загрузится */
+            overflow: hidden;
+            background-color: #111;
             font-family: Arial, sans-serif;
         }
 
-        /* ---------- Контейнер карты (занимает весь экран) ---------- */
+        /* ---------- 2D контейнер карты (обычный режим) ---------- */
         #map-container {
             position: relative;
             width: 100%;
             height: 100%;
             overflow: hidden;
-            cursor: grab;       /* Курсор-рука для перетаскивания */
+            cursor: grab;
         }
         #map-container.dragging {
-            cursor: grabbing;   /* Курсор при зажатой кнопке мыши */
+            cursor: grabbing;
         }
-
-        /* ---------- Изображение карты (трансформируется) ---------- */
         #map-image {
             position: absolute;
             width: auto;
             height: auto;
-            transform-origin: 0 0;  /* Точка трансформации – верхний левый угол */
-            pointer-events: none;   /* Клики проходят сквозь картинку на контейнер */
+            transform-origin: 0 0;
+            pointer-events: none;
         }
-
-        /* ---------- Контейнер для маркеров (поверх карты) ---------- */
         #markers-container {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            pointer-events: none;   /* Сам контейнер не перехватывает события */
+            pointer-events: none;
         }
-
-        /* ---------- Стиль маркера ---------- */
         .marker {
             position: absolute;
             width: 40px;
             height: 40px;
-            margin-left: -20px;     /* Сдвиг для центрирования по координате */
+            margin-left: -20px;
             margin-top: -20px;
             background-size: contain;
             background-position: center;
             background-repeat: no-repeat;
             cursor: pointer;
-            pointer-events: auto;    /* Маркер реагирует на клики */
+            pointer-events: auto;
             transition: transform 0.1s;
         }
         .marker:hover {
-            transform: scale(1.1);   /* Лёгкое увеличение при наведении */
+            transform: scale(1.1);
         }
 
-        /* ---------- Кнопка сброса вида ---------- */
-        #reset-btn {
+        /* ---------- 3D контейнер для глобуса (скрыт по умолчанию) ---------- */
+        #globe-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+            background-color: #000;
+            display: none;
+        }
+        #globe-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* ---------- Кнопки управления ---------- */
+        .top-buttons {
             position: absolute;
             top: 20px;
             right: 20px;
             z-index: 20;
+            display: flex;
+            gap: 12px;
+        }
+        #reset-btn, #toggle-globe-btn {
             padding: 10px 20px;
             font-size: 16px;
             border: none;
@@ -89,11 +112,11 @@
             font-weight: normal;
             color: black;
         }
-        #reset-btn:hover {
+        #reset-btn:hover, #toggle-globe-btn:hover {
             background-color: white;
         }
 
-        /* ---------- Боковая панель с информацией о маркере ---------- */
+        /* ---------- Боковая панель ---------- */
         #sidebar {
             position: fixed;
             top: 0;
@@ -106,12 +129,12 @@
             padding: 20px;
             display: flex;
             flex-direction: column;
-            transform: translateX(100%);   /* Скрыта за правым краем */
+            transform: translateX(100%);
             transition: transform 0.25s ease;
             overflow-y: auto;
         }
         #sidebar.open {
-            transform: translateX(0);      /* Показываем при открытии */
+            transform: translateX(0);
         }
         .close-btn {
             align-self: flex-end;
@@ -140,18 +163,17 @@
             line-height: 1.4;
         }
 
-        /* ---------- Меню фильтрации (иконка и панель) ---------- */
+        /* ---------- Меню фильтрации (без изменений) ---------- */
         .filter-menu-container {
             position: absolute;
             top: 20px;
             left: 20px;
             z-index: 25;
         }
-        /* Круглая иконка-меню (белый фон, чёрные точки, как кнопка сброса) */
         .filter-icon {
             width: 48px;
             height: 48px;
-            background-color: rgba(255,255,255,0.9); /* Белый полупрозрачный фон */
+            background-color: rgba(255,255,255,0.9);
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -167,16 +189,12 @@
         .filter-icon svg {
             width: 24px;
             height: 24px;
-            transition: none;
         }
-        /* Иконки внутри SVG – чёрные (устанавливаем fill="black" в HTML) */
-        /* Панель с чекбоксами фильтров (светлая тема) */
         .filter-panel {
             position: absolute;
             top: 60px;
             left: 0;
             background: rgba(255,255,255,0.95);
-            backdrop-filter: blur(0); /* без размытия */
             border-radius: 12px;
             padding: 12px 20px;
             min-width: 180px;
@@ -194,7 +212,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            color: black; /* чёрный текст */
+            color: black;
             font-size: 14px;
             cursor: pointer;
             padding: 5px 0;
@@ -204,11 +222,6 @@
             height: 18px;
             cursor: pointer;
         }
-        .filter-option label {
-            cursor: pointer;
-        }
-
-        /* ---------- Сообщение об ошибке (временное) ---------- */
         .error-message {
             position: fixed;
             bottom: 20px;
@@ -223,23 +236,29 @@
     </style>
 </head>
 <body>
-    <!-- Контейнер карты (весь экран) -->
+    <!-- 2D контейнер карты -->
     <div id="map-container">
         <img id="map-image" src="map.jpg" alt="Карта">
         <div id="markers-container"></div>
     </div>
 
-    <!-- Кнопка сброса вида -->
-    <button id="reset-btn">Сбросить вид</button>
+    <!-- 3D контейнер для глобуса -->
+    <div id="globe-container">
+        <canvas id="globe-canvas"></canvas>
+    </div>
 
-    <!-- Меню фильтрации (иконка и панель) -->
+    <!-- Кнопки управления -->
+    <div class="top-buttons">
+        <button id="reset-btn">Сбросить вид</button>
+        <button id="toggle-globe-btn">Глобус</button>
+    </div>
+
+    <!-- Меню фильтрации -->
     <div class="filter-menu-container">
         <div class="filter-icon" id="filter-icon">
-            <!-- Иконка трёх точек (видна по умолчанию) – чёрная -->
             <svg class="icon-dots" viewBox="0 0 24 24" fill="black" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
             </svg>
-            <!-- Иконка крестика (скрыта по умолчанию) – чёрная -->
             <svg class="icon-close" style="display: none;" viewBox="0 0 24 24" fill="black" xmlns="http://www.w3.org/2000/svg">
                 <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
             </svg>
@@ -247,7 +266,7 @@
         <div class="filter-panel" id="filter-panel"></div>
     </div>
 
-    <!-- Боковая панель с информацией о выбранном маркере -->
+    <!-- Боковая панель информации -->
     <div id="sidebar">
         <button class="close-btn" id="close-sidebar">&times;</button>
         <h2 id="sidebar-title"></h2>
@@ -255,49 +274,58 @@
         <div id="sidebar-text" class="sidebar-text"></div>
     </div>
 
-    <script>
-        // ==================== 1. ПОЛУЧЕНИЕ ССЫЛОК НА DOM-ЭЛЕМЕНТЫ ====================
+    <script type="module">
+        // Импорт Three.js модулей (работаем в module-режиме, чтобы не конфликтовать с глобальными скриптами)
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
+        // Данные маркеров (общие для 2D и 3D)
+        let markersData = [];       
+        let markerElements2D = [];    
+        let categoriesSet = new Set();
+        let activeCategories = new Set();
+
+        // 2D переменные (из оригинального скрипта)
         const container = document.getElementById('map-container');
         const mapImg = document.getElementById('map-image');
         const resetBtn = document.getElementById('reset-btn');
         const markersContainer = document.getElementById('markers-container');
+        let scale = 1;
+        let minScale = 1;
+        const maxScale = 5;
+        let translateX = 0, translateY = 0;
+        let isDragging = false;
+        let startX = 0, startY = 0;
+        let lastTranslateX = 0, lastTranslateY = 0;
+
+        // 3D переменные
+        let globeMode = false;               // текущий режим: true = глобус, false = плоская карта
+        let scene, camera, renderer, controls, globeGroup, globeSphere;
+        let markers3D = [];                  // массив 3D объектов-маркеров (спрайты или меши)
+        let marker3DData = [];               // связь с индексом markersData
+        let textureLoader;
+        let raycaster;
+        let mouse = new THREE.Vector2();
+        
+        // DOM элементы
+        const globeContainer = document.getElementById('globe-container');
+        const toggleGlobeBtn = document.getElementById('toggle-globe-btn');
         const sidebar = document.getElementById('sidebar');
         const closeSidebar = document.getElementById('close-sidebar');
         const sidebarTitle = document.getElementById('sidebar-title');
         const sidebarImage = document.getElementById('sidebar-image');
         const sidebarText = document.getElementById('sidebar-text');
-
         const filterIcon = document.getElementById('filter-icon');
         const filterPanel = document.getElementById('filter-panel');
+        
+        let dataLoaded = false;   // флаг загрузки Excel
 
-        // ==================== 2. ПАРАМЕТРЫ ТРАНСФОРМАЦИИ КАРТЫ ====================
-        let scale = 1;          // Текущий масштаб (1 = минимальный cover)
-        let minScale = 1;       // Минимальный масштаб (вычисляется при загрузке)
-        const maxScale = 5;     // Максимальный масштаб (5x)
-        let translateX = 0;     // Смещение по X в пикселях экрана
-        let translateY = 0;     // Смещение по Y
-
-        // Переменные для реализации перетаскивания
-        let isDragging = false;
-        let startX = 0, startY = 0;
-        let lastTranslateX = 0, lastTranslateY = 0;
-
-        // ==================== 3. ДАННЫЕ МАРКЕРОВ (заполняются из Excel) ====================
-        let markersData = [];       // Массив объектов маркеров (название, координаты, иконка, категория и т.д.)
-        let markerElements = [];    // Массив DOM-элементов маркеров (соответствует порядку в markersData)
-        let categoriesSet = new Set();      // Множество уникальных категорий
-        let activeCategories = new Set();   // Множество активных (включённых) категорий
-
-        // ==================== 4. ФУНКЦИИ ПОЗИЦИОНИРОВАНИЯ КАРТЫ ====================
-        /**
-         * Обновляет позиции всех маркеров в соответствии с текущим масштабом и смещением.
-         * Вызывается после каждого изменения трансформации.
-         */
-        function updateMarkers() {
-            markerElements.forEach((marker, i) => {
+        // ==================== 2D ФУНКЦИИ (оригинал с небольшими правками) ====================
+        function updateMarkers2D() {
+            markerElements2D.forEach((marker, i) => {
                 if (i >= markersData.length) return;
                 const data = markersData[i];
-                // Вычисляем экранные координаты маркера
                 const x = data.imgX * scale + translateX;
                 const y = data.imgY * scale + translateY;
                 marker.style.left = x + 'px';
@@ -305,81 +333,62 @@
             });
         }
 
-        /**
-         * Применяет текущие значения scale и translate к изображению карты,
-         * а также обновляет позиции маркеров.
-         */
-        function updateTransform() {
+        function updateTransform2D() {
             mapImg.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
-            updateMarkers();
+            updateMarkers2D();
         }
 
-        /**
-         * Устанавливает минимальный масштаб так, чтобы изображение полностью покрывало экран (cover),
-         * и центрирует его. Вызывается при загрузке страницы, изменении размера окна и по кнопке "Сбросить вид".
-         */
         function setCoverAndCenter() {
             const rect = container.getBoundingClientRect();
             const imgW = mapImg.naturalWidth;
             const imgH = mapImg.naturalHeight;
-            if (!imgW || !imgH) return; // Изображение ещё не загружено
-
-            // Вычисляем коэффициенты масштаба по ширине и высоте
+            if (!imgW || !imgH) return;
             const scaleX = rect.width / imgW;
             const scaleY = rect.height / imgH;
-            // Выбираем больший – так изображение заполнит весь экран (cover)
             minScale = Math.max(scaleX, scaleY);
             scale = minScale;
-
-            // Центрируем изображение: смещение = (размер контейнера - размер изображения * масштаб) / 2
             translateX = (rect.width - imgW * scale) / 2;
             translateY = (rect.height - imgH * scale) / 2;
-
-            updateTransform();
+            updateTransform2D();
         }
 
-        /**
-         * Ограничивает смещение, чтобы изображение не выходило за границы экрана.
-         * Пользователь не может переместить карту так, чтобы появились пустые поля.
-         */
-        function clampTranslate() {
+        function clampTranslate2D() {
             const rect = container.getBoundingClientRect();
             const imgW = mapImg.naturalWidth * scale;
             const imgH = mapImg.naturalHeight * scale;
-
-            // Допустимый диапазон translateX: от (ширина_экрана - ширина_изображения) до 0
             const minX = rect.width - imgW;
             const maxX = 0;
             const minY = rect.height - imgH;
             const maxY = 0;
-
             translateX = Math.min(maxX, Math.max(minX, translateX));
             translateY = Math.min(maxY, Math.max(minY, translateY));
         }
 
-        // ==================== 5. ФИЛЬТРАЦИЯ МАРКЕРОВ ПО КАТЕГОРИЯМ ====================
-        /**
-         * Применяет текущие активные категории к отображению маркеров:
-         * маркеры, чья категория входит в activeCategories, показываются, иначе скрываются.
-         */
+        // Фильтрация для 2D и синхронизация с 3D
         function applyFilter() {
-            markerElements.forEach((marker, idx) => {
+            // 2D маркеры
+            markerElements2D.forEach((marker, idx) => {
                 const category = markersData[idx].category;
-                if (activeCategories.has(category)) {
-                    marker.style.display = 'block';
-                } else {
-                    marker.style.display = 'none';
-                }
+                marker.style.display = activeCategories.has(category) ? 'block' : 'none';
             });
+            // Если активен режим глобуса — обновить видимость 3D маркеров
+            if (globeMode && markers3D.length) {
+                update3DMarkersVisibility();
+            }
         }
 
-        /**
-         * Создаёт панель фильтров на основе уникальных категорий.
-         * Для каждой категории добавляется чекбокс, изначально отмеченный (активный).
-         */
+        function update3DMarkersVisibility() {
+            for (let i = 0; i < markers3D.length; i++) {
+                const markerObj = markers3D[i];
+                const category = markersData[marker3DData[i]].category;
+                markerObj.visible = activeCategories.has(category);
+            }
+        }
+
+        // Построение панели фильтров
         function buildFilterMenu() {
             filterPanel.innerHTML = '';
-            const categories = Array.from(categoriesSet).sort(); // Сортируем для удобства
+            const categories = Array.from(categoriesSet).sort();
             categories.forEach(cat => {
                 const div = document.createElement('div');
                 div.className = 'filter-option';
@@ -388,12 +397,9 @@
                 checkbox.value = cat;
                 checkbox.checked = activeCategories.has(cat);
                 checkbox.addEventListener('change', (e) => {
-                    if (e.target.checked) {
-                        activeCategories.add(cat);
-                    } else {
-                        activeCategories.delete(cat);
-                    }
-                    applyFilter();  // Сразу применяем фильтр
+                    if (e.target.checked) activeCategories.add(cat);
+                    else activeCategories.delete(cat);
+                    applyFilter();
                 });
                 const label = document.createElement('label');
                 label.textContent = cat;
@@ -403,17 +409,23 @@
             });
         }
 
-        // ==================== 6. ЗАГРУЗКА ДАННЫХ ИЗ EXCEL-ФАЙЛА ====================
-        /**
-         * Асинхронно загружает файл data.xlsx, парсит его и создаёт маркеры.
-         * Ожидается, что файл содержит столбцы:
-         *   A – название места
-         *   B – координаты (x;y)
-         *   C – изображение места (путь к файлу)
-         *   D – описание места
-         *   E – маркер места (иконка)
-         *   F – категория
-         */
+        // Открытие боковой панели (общая для 2D и 3D)
+        function openSidebar(index) {
+            if (!markersData[index]) return;
+            const data = markersData[index];
+            sidebarTitle.textContent = data.name;
+            sidebarText.textContent = data.description || 'Описание отсутствует';
+            if (data.imageUrl && data.imageUrl.trim() !== '') {
+                sidebarImage.src = data.imageUrl;
+                sidebarImage.alt = data.name;
+                sidebarImage.style.display = 'block';
+            } else {
+                sidebarImage.style.display = 'none';
+            }
+            sidebar.classList.add('open');
+        }
+
+        // ==================== ЗАГРУЗКА EXCEL (оригинал, но с флагом dataLoaded) ====================
         async function loadMarkersFromExcel() {
             try {
                 const response = await fetch('data.xlsx');
@@ -422,17 +434,14 @@
                 const workbook = XLSX.read(arrayBuffer, { type: 'array' });
                 const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                 const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+                if (!rows || rows.length < 2) throw new Error('Таблица пуста');
 
-                if (!rows || rows.length < 2) throw new Error('Таблица пуста или нет данных');
-
-                // Очищаем предыдущие данные
                 markersContainer.innerHTML = '';
                 markersData = [];
-                markerElements = [];
+                markerElements2D = [];
                 categoriesSet.clear();
                 activeCategories.clear();
 
-                // Проходим по строкам, начиная со второй (первая – заголовки)
                 for (let i = 1; i < rows.length; i++) {
                     const row = rows[i];
                     const name = row[0] ? row[0].toString().trim() : '';
@@ -441,47 +450,34 @@
                     const description = row[3] ? row[3].toString().trim() : '';
                     const icon = row[4] ? row[4].toString().trim() : '';
                     const category = row[5] ? row[5].toString().trim() : 'Без категории';
-
-                    // Пропускаем пустые строки
                     if (!name && !coordsStr) continue;
-
-                    // Разбираем координаты (формат "x;y")
                     const coords = coordsStr.split(';');
-                    if (coords.length !== 2) {
-                        console.warn(`Строка ${i+1}: неверный формат координат "${coordsStr}"`);
-                        continue;
-                    }
+                    if (coords.length !== 2) continue;
                     const imgX = parseFloat(coords[0]);
                     const imgY = parseFloat(coords[1]);
-                    if (isNaN(imgX) || isNaN(imgY)) {
-                        console.warn(`Строка ${i+1}: координаты не числа`);
-                        continue;
-                    }
-
-                    // Формируем объект маркера
+                    if (isNaN(imgX) || isNaN(imgY)) continue;
+                    
                     const markerData = {
                         name: name || 'Без названия',
                         imgX, imgY,
                         description: description || '',
                         imageUrl: imageUrl || '',
                         icon: icon || '',
-                        category: category || 'Без категории'
+                        category: category
                     };
                     markersData.push(markerData);
                     categoriesSet.add(markerData.category);
-                    activeCategories.add(markerData.category); // По умолчанию все категории активны
-
-                    // Создаём DOM-элемент маркера
+                    activeCategories.add(markerData.category);
+                    
+                    // Создание 2D маркера
                     const marker = document.createElement('div');
                     marker.className = 'marker';
                     if (markerData.icon) {
-                        // Если указана иконка – используем её
                         marker.style.backgroundImage = `url('${markerData.icon}')`;
                         marker.style.backgroundColor = 'transparent';
                         marker.style.border = 'none';
                         marker.style.boxShadow = 'none';
                     } else {
-                        // Иначе стандартный красный кружок (стили из CSS)
                         marker.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
                         marker.style.border = '3px solid white';
                         marker.style.borderRadius = '50%';
@@ -493,66 +489,344 @@
                         openSidebar(parseInt(marker.dataset.index));
                     });
                     markersContainer.appendChild(marker);
-                    markerElements.push(marker);
+                    markerElements2D.push(marker);
                 }
-
-                if (markersData.length === 0) {
-                    console.warn('Не найдено ни одного корректного маркера в Excel');
-                } else {
-                    buildFilterMenu();      // Создаём панель фильтров
-                    applyFilter();          // Применяем фильтры (все категории включены)
-                    updateMarkers();        // Позиционируем маркеры
-                }
+                if (markersData.length === 0) console.warn('Нет корректных маркеров');
+                buildFilterMenu();
+                applyFilter();
+                updateMarkers2D();
+                dataLoaded = true;
             } catch (err) {
                 console.error('Ошибка загрузки Excel:', err);
                 const errorDiv = document.createElement('div');
                 errorDiv.className = 'error-message';
-                errorDiv.textContent = 'Не удалось загрузить данные из data.xlsx. Проверьте наличие файла и структуру таблицы.';
+                errorDiv.textContent = 'Не удалось загрузить data.xlsx. Проверьте файл.';
                 document.body.appendChild(errorDiv);
                 setTimeout(() => errorDiv.remove(), 5000);
+                dataLoaded = false;
             }
         }
 
-        // ==================== 7. БОКОВАЯ ПАНЕЛЬ ИНФОРМАЦИИ О МАРКЕРЕ ====================
-        /**
-         * Открывает боковую панель и заполняет её данными выбранного маркера.
-         * @param {number} index – индекс маркера в массиве markersData
-         */
-        function openSidebar(index) {
-            if (!markersData[index]) return;
-            const data = markersData[index];
-            sidebarTitle.textContent = data.name;
-            sidebarText.textContent = data.description || 'Описание отсутствует';
-
-            if (data.imageUrl && data.imageUrl.trim() !== '') {
-                sidebarImage.src = data.imageUrl;
-                sidebarImage.alt = data.name;
-                sidebarImage.style.display = 'block';
+        // ==================== 3D ГЛОБУС: СОЗДАНИЕ И УПРАВЛЕНИЕ ====================
+        async function initGlobe() {
+            if (!dataLoaded || markersData.length === 0) {
+                console.warn("Данные ещё не загружены, невозможно создать глобус");
+                return false;
+            }
+            // Очищаем предыдущую сцену, если есть
+            if (renderer) {
+                renderer.dispose();
+                globeContainer.removeChild(globeContainer.querySelector('canvas'));
+            }
+            
+            // Настройка сцены
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x050b1a); // тёмный космос
+            
+            camera = new THREE.PerspectiveCamera(45, globeContainer.clientWidth / globeContainer.clientHeight, 0.1, 1000);
+            camera.position.set(0, 0, 5);
+            
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('globe-canvas'), alpha: false });
+            renderer.setSize(globeContainer.clientWidth, globeContainer.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;      // инерция
+            controls.dampingFactor = 0.05;
+            controls.rotateSpeed = 1.0;
+            controls.zoomSpeed = 1.2;
+            controls.enableZoom = true;
+            controls.autoRotate = false;
+            controls.target.set(0, 0, 0);
+            
+            // Освещение
+            const ambientLight = new THREE.AmbientLight(0x404060);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+            const backLight = new THREE.PointLight(0x4466cc, 0.3);
+            backLight.position.set(-3, -1, -4);
+            scene.add(backLight);
+            
+            // Сфера с текстурой map.jpg
+            const geometry = new THREE.SphereGeometry(1.8, 128, 128);
+            textureLoader = new THREE.TextureLoader();
+            const mapTexture = textureLoader.load('map.jpg');
+            mapTexture.wrapS = THREE.RepeatWrapping;
+            mapTexture.wrapT = THREE.ClampToEdgeWrapping;
+            const material = new THREE.MeshStandardMaterial({ map: mapTexture, roughness: 0.5, metalness: 0.1 });
+            globeSphere = new THREE.Mesh(geometry, material);
+            scene.add(globeSphere);
+            
+            // Создаём маркеры в 3D
+            markers3D = [];
+            marker3DData = [];
+            const sphereRadius = 1.81; // чуть больше сферы, чтобы не было z-fighting
+            
+            // Функция для создания спрайта из иконки или цвета
+            function createMarkerSprite(iconUrl, fallbackColor = '#ff3366') {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                if (iconUrl && iconUrl.trim() !== '') {
+                    // Асинхронно загружаем иконку, но для простоты используем запасной вариант
+                    // В реальном проекте можно загружать картинки, но здесь сделаем цветной круг с текстом
+                    ctx.fillStyle = fallbackColor;
+                    ctx.beginPath();
+                    ctx.arc(32, 32, 28, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 20px Arial';
+                    ctx.fillText('📍', 22, 44);
+                } else {
+                    ctx.fillStyle = fallbackColor;
+                    ctx.beginPath();
+                    ctx.arc(32, 32, 28, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 24px Arial';
+                    ctx.fillText('●', 24, 46);
+                }
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.scale.set(0.25, 0.25, 0.25);
+                return sprite;
+            }
+            
+            // Получаем размеры оригинальной карты для UV пересчета
+            const imgW = mapImg.naturalWidth;
+            const imgH = mapImg.naturalHeight;
+            if (!imgW || !imgH) {
+                console.warn("Изображение карты не загружено, UV координаты могут быть неверны");
+            }
+            
+            for (let i = 0; i < markersData.length; i++) {
+                const data = markersData[i];
+                // Конвертация (imgX, imgY) в UV
+                let u = data.imgX / imgW;
+                let v = data.imgY / imgH;
+                // Преобразование UV в сферические координаты (theta, phi)
+                // theta: 0..2pi, phi: -pi/2..pi/2, где u=0 -> theta = -pi, u=1 -> theta = pi
+                // v=0 -> phi = pi/2 (север), v=1 -> phi = -pi/2 (юг)
+                const theta = (u * 2 * Math.PI) - Math.PI;
+                const phi = (Math.PI / 2) - (v * Math.PI);
+                const x = sphereRadius * Math.cos(phi) * Math.cos(theta);
+                const y = sphereRadius * Math.sin(phi);
+                const z = sphereRadius * Math.cos(phi) * Math.sin(theta);
+                
+                let markerObj;
+                if (data.icon && data.icon.trim() !== '') {
+                    // Пытаемся загрузить кастомную иконку как спрайт
+                    const imgTexture = textureLoader.load(data.icon);
+                    const spriteMat = new THREE.SpriteMaterial({ map: imgTexture, depthTest: false });
+                    markerObj = new THREE.Sprite(spriteMat);
+                    markerObj.scale.set(0.22, 0.22, 0.22);
+                } else {
+                    // Создаём цветной спрайт
+                    const color = '#ff5555';
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 64;
+                    canvas.height = 64;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(32, 32, 28, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 30px Arial';
+                    ctx.fillText('📍', 20, 48);
+                    const texture = new THREE.CanvasTexture(canvas);
+                    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+                    markerObj = new THREE.Sprite(spriteMat);
+                    markerObj.scale.set(0.22, 0.22, 0.22);
+                }
+                markerObj.position.set(x, y, z);
+                markerObj.userData = { index: i, name: data.name };
+                scene.add(markerObj);
+                markers3D.push(markerObj);
+                marker3DData.push(i);
+            }
+            
+            // Применить текущую фильтрацию к 3D маркерам
+            update3DMarkersVisibility();
+            
+            // Raycaster для кликов по маркерам
+            raycaster = new THREE.Raycaster();
+            renderer.domElement.addEventListener('click', (event) => {
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(markers3D);
+                if (intersects.length > 0) {
+                    const hit = intersects[0].object;
+                    const idx = hit.userData.index;
+                    if (idx !== undefined) openSidebar(idx);
+                }
+            });
+            
+            // Анимация
+            function animate() {
+                if (!globeMode) return;
+                requestAnimationFrame(animate);
+                controls.update(); // обновление орбиты
+                renderer.render(scene, camera);
+            }
+            animate();
+            
+            return true;
+        }
+        
+        function destroyGlobe() {
+            if (renderer) {
+                renderer.dispose();
+                const canvas = renderer.domElement;
+                if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
+            }
+            if (scene) {
+                scene.clear();
+            }
+            markers3D = [];
+            marker3DData = [];
+            globeSphere = null;
+            controls = null;
+        }
+        
+        // Переключение между режимами
+        async function toggleGlobeMode() {
+            if (!dataLoaded) {
+                alert("Данные с маркерами ещё загружаются, попробуйте через секунду.");
+                return;
+            }
+            if (!globeMode) {
+                // Включаем глобус
+                globeMode = true;
+                toggleGlobeBtn.textContent = "Карта";
+                // Скрываем 2D контейнер, показываем 3D
+                container.style.display = "none";
+                globeContainer.style.display = "block";
+                // Инициализируем 3D сцену
+                await initGlobe();
+                // При необходимости синхронизируем фильтр
+                update3DMarkersVisibility();
             } else {
-                sidebarImage.style.display = 'none';
+                // Возврат к 2D карте
+                globeMode = false;
+                toggleGlobeBtn.textContent = "Глобус";
+                globeContainer.style.display = "none";
+                container.style.display = "block";
+                destroyGlobe();
+                // Обновляем позиции 2D маркеров (на случай, если окно менялось)
+                setCoverAndCenter();
+                updateMarkers2D();
             }
-            sidebar.classList.add('open');
         }
-
-        // Закрытие боковой панели по крестику
-        closeSidebar.addEventListener('click', () => {
-            sidebar.classList.remove('open');
-        });
-
-        // Закрытие боковой панели при клике вне её (но не по маркеру)
+        
+        // ==================== ИНИЦИАЛИЗАЦИЯ 2D СОБЫТИЙ ====================
+        function init2DEvents() {
+            container.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const rect = container.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                const imgX = (mouseX - translateX) / scale;
+                const imgY = (mouseY - translateY) / scale;
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                let newScale = scale + delta;
+                if (newScale < minScale) newScale = minScale;
+                if (newScale > maxScale) newScale = maxScale;
+                scale = newScale;
+                translateX = mouseX - imgX * scale;
+                translateY = mouseY - imgY * scale;
+                clampTranslate2D();
+                updateTransform2D();
+            }, { passive: false });
+            
+            container.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                isDragging = true;
+                container.classList.add('dragging');
+                startX = e.clientX;
+                startY = e.clientY;
+                lastTranslateX = translateX;
+                lastTranslateY = translateY;
+            });
+            window.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                e.preventDefault();
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                translateX = lastTranslateX + dx;
+                translateY = lastTranslateY + dy;
+                clampTranslate2D();
+                updateTransform2D();
+            });
+            window.addEventListener('mouseup', () => {
+                isDragging = false;
+                container.classList.remove('dragging');
+            });
+            container.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    e.preventDefault();
+                    isDragging = true;
+                    container.classList.add('dragging');
+                    startX = e.touches[0].clientX;
+                    startY = e.touches[0].clientY;
+                    lastTranslateX = translateX;
+                    lastTranslateY = translateY;
+                }
+            });
+            window.addEventListener('touchmove', (e) => {
+                if (!isDragging || e.touches.length !== 1) return;
+                e.preventDefault();
+                const dx = e.touches[0].clientX - startX;
+                const dy = e.touches[0].clientY - startY;
+                translateX = lastTranslateX + dx;
+                translateY = lastTranslateY + dy;
+                clampTranslate2D();
+                updateTransform2D();
+            });
+            window.addEventListener('touchend', () => {
+                isDragging = false;
+                container.classList.remove('dragging');
+            });
+            resetBtn.addEventListener('click', setCoverAndCenter);
+            window.addEventListener('resize', () => {
+                if (mapImg.complete && !globeMode) setCoverAndCenter();
+                else if (globeMode && renderer) {
+                    const width = globeContainer.clientWidth;
+                    const height = globeContainer.clientHeight;
+                    renderer.setSize(width, height);
+                    camera.aspect = width / height;
+                    camera.updateProjectionMatrix();
+                }
+            });
+        }
+        
+        // Закрытие боковой панели
+        closeSidebar.addEventListener('click', () => sidebar.classList.remove('open'));
         document.addEventListener('click', (e) => {
-            if (!sidebar.contains(e.target) && !e.target.classList.contains('marker')) {
+            if (!sidebar.contains(e.target) && !e.target.classList?.contains('marker') && !e.target.classList?.contains('sprite')) {
                 sidebar.classList.remove('open');
             }
         });
-
-        // ==================== 8. УПРАВЛЕНИЕ МЕНЮ ФИЛЬТРОВ (ИКОНКА) ====================
-        let filterMenuOpen = false; // Флаг открытого состояния панели фильтров
-
-        /**
-         * Переключает состояние панели фильтров и меняет иконку (три точки ↔ крестик).
-         */
-        function toggleFilterMenu() {
+        
+        // Меню фильтрации (иконка)
+        let filterMenuOpen = false;
+        filterIcon.addEventListener('click', (e) => {
+            e.stopPropagation();
             filterMenuOpen = !filterMenuOpen;
             const iconDots = document.querySelector('.icon-dots');
             const iconClose = document.querySelector('.icon-close');
@@ -565,136 +839,37 @@
                 iconDots.style.display = 'block';
                 iconClose.style.display = 'none';
             }
-        }
-
-        // Обработчик клика по иконке
-        filterIcon.addEventListener('click', (e) => {
-            e.stopPropagation(); // Не даём событию всплыть до document
-            toggleFilterMenu();
         });
-
-        // Закрытие панели фильтров при клике вне иконки и вне панели (например, на карту)
         document.addEventListener('click', (e) => {
-            if (!filterIcon.contains(e.target) && !filterPanel.contains(e.target)) {
-                if (filterMenuOpen) {
-                    filterMenuOpen = false;
-                    filterPanel.classList.remove('open');
-                    // Возвращаем иконку в состояние "три точки"
-                    const iconDots = document.querySelector('.icon-dots');
-                    const iconClose = document.querySelector('.icon-close');
-                    if (iconDots && iconClose) {
-                        iconDots.style.display = 'block';
-                        iconClose.style.display = 'none';
-                    }
+            if (!filterIcon.contains(e.target) && !filterPanel.contains(e.target) && filterMenuOpen) {
+                filterMenuOpen = false;
+                filterPanel.classList.remove('open');
+                const iconDots = document.querySelector('.icon-dots');
+                const iconClose = document.querySelector('.icon-close');
+                if (iconDots && iconClose) {
+                    iconDots.style.display = 'block';
+                    iconClose.style.display = 'none';
                 }
             }
         });
-
-        // ==================== 9. ОБРАБОТЧИКИ ВЗАИМОДЕЙСТВИЯ С КАРТОЙ ====================
-        // ----- Зум колёсиком мыши -----
-        container.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const rect = container.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-
-            // Координаты точки на изображении до зумирования
-            const imgX = (mouseX - translateX) / scale;
-            const imgY = (mouseY - translateY) / scale;
-
-            const delta = e.deltaY > 0 ? -0.1 : 0.1;
-            let newScale = scale + delta;
-            if (newScale < minScale) newScale = minScale;
-            if (newScale > maxScale) newScale = maxScale;
-
-            scale = newScale;
-            // Корректируем смещение, чтобы точка под курсором осталась на месте
-            translateX = mouseX - imgX * scale;
-            translateY = mouseY - imgY * scale;
-
-            clampTranslate();
-            updateTransform();
-        }, { passive: false });
-
-        // ----- Перетаскивание мышью -----
-        container.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-            isDragging = true;
-            container.classList.add('dragging');
-            startX = e.clientX;
-            startY = e.clientY;
-            lastTranslateX = translateX;
-            lastTranslateY = translateY;
+        
+        // Кнопка переключения глобуса
+        toggleGlobeBtn.addEventListener('click', toggleGlobeMode);
+        
+        // Запуск: ждём загрузку картинки и Excel
+        if (mapImg.complete) setCoverAndCenter();
+        else mapImg.onload = setCoverAndCenter;
+        
+        loadMarkersFromExcel().then(() => {
+            // После загрузки данных, если окно изменилось - обновим
+            if (!globeMode) updateMarkers2D();
         });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            e.preventDefault();
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            translateX = lastTranslateX + dx;
-            translateY = lastTranslateY + dy;
-            clampTranslate();
-            updateTransform();
-        });
-
-        window.addEventListener('mouseup', () => {
-            isDragging = false;
-            container.classList.remove('dragging');
-        });
-
-        window.addEventListener('mouseleave', () => {
-            isDragging = false;
-            container.classList.remove('dragging');
-        });
-
-        // ----- Поддержка сенсорных устройств (один палец) -----
-        container.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            if (e.touches.length === 1) {
-                isDragging = true;
-                container.classList.add('dragging');
-                startX = e.touches[0].clientX;
-                startY = e.touches[0].clientY;
-                lastTranslateX = translateX;
-                lastTranslateY = translateY;
-            }
-        });
-
-        window.addEventListener('touchmove', (e) => {
-            if (!isDragging || e.touches.length !== 1) return;
-            e.preventDefault();
-            const dx = e.touches[0].clientX - startX;
-            const dy = e.touches[0].clientY - startY;
-            translateX = lastTranslateX + dx;
-            translateY = lastTranslateY + dy;
-            clampTranslate();
-            updateTransform();
-        });
-
-        window.addEventListener('touchend', () => {
-            isDragging = false;
-            container.classList.remove('dragging');
-        });
-
-        // ----- Кнопка сброса вида -----
-        resetBtn.addEventListener('click', setCoverAndCenter);
-
-        // ----- Адаптация при изменении размера окна -----
-        window.addEventListener('resize', () => {
-            if (mapImg.complete) setCoverAndCenter();
-        });
-
-        // ==================== 10. ИНИЦИАЛИЗАЦИЯ ====================
-        // Ждём загрузки изображения карты, чтобы правильно вычислить cover-масштаб
-        if (mapImg.complete) {
-            setCoverAndCenter();
-        } else {
-            mapImg.onload = setCoverAndCenter;
-        }
-
-        // Загружаем данные маркеров из Excel
-        loadMarkersFromExcel();
+        init2DEvents();
+        
+        // Стиль для canvas в 3D режиме
+        const style = document.createElement('style');
+        style.textContent = `#globe-canvas { width: 100%; height: 100%; display: block; }`;
+        document.head.appendChild(style);
     </script>
 </body>
 </html>
