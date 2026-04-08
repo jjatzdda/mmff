@@ -28,7 +28,6 @@
             font-family: Arial, sans-serif;
         }
 
-        /* 2D контейнер */
         #map-container {
             position: relative;
             width: 100%;
@@ -67,7 +66,6 @@
         }
         .marker:hover { transform: scale(1.1); }
 
-        /* 3D контейнер */
         #globe-container {
             position: absolute;
             top: 0;
@@ -84,7 +82,6 @@
             display: block;
         }
 
-        /* Кнопки */
         .top-buttons {
             position: absolute;
             top: 20px;
@@ -106,7 +103,6 @@
         }
         #reset-btn:hover, #toggle-globe-btn:hover { background-color: white; }
 
-        /* Боковая панель - ширина увеличена в 2 раза (было 300px -> 600px) */
         #sidebar {
             position: fixed;
             top: 0;
@@ -149,7 +145,6 @@
             line-height: 1.4;
         }
 
-        /* Фильтр меню - чекбоксы одного размера */
         .filter-menu-container {
             position: absolute;
             top: 20px;
@@ -274,6 +269,7 @@
         const sidebarText = document.getElementById('sidebar-text');
         const filterIcon = document.getElementById('filter-icon');
         const filterPanel = document.getElementById('filter-panel');
+        const globeCanvas = document.getElementById('globe-canvas');
 
         // 2D переменные
         let scale = 1, minScale = 1, maxScale = 5;
@@ -285,10 +281,9 @@
         // 3D переменные
         let globeMode = false;
         let scene, camera, renderer, controls, globeSphere;
-        let markers3D = [];          // массив спрайтов
-        let markerIndices = [];      // индекс в markersData для каждого 3D маркера
+        let markers3D = [];
+        let markerIndices = [];
         let animationId = null;
-        let isGlobeInitialized = false;
 
         // ========== 2D ФУНКЦИИ ==========
         function updateMarkers2D() {
@@ -345,7 +340,24 @@
             for (let i = 0; i < markers3D.length; i++) {
                 const idx = markerIndices[i];
                 const category = markersData[idx].category;
-                markers3D[i].visible = activeCategories.has(category);
+                markers3D[i].userData.categoryVisible = activeCategories.has(category);
+            }
+            updateCombinedVisibility();
+        }
+
+        function updateCombinedVisibility() {
+            if (!camera) return;
+            const cameraPos = camera.position.clone().normalize();
+            for (let i = 0; i < markers3D.length; i++) {
+                const m = markers3D[i];
+                const catVisible = m.userData.categoryVisible;
+                if (!catVisible) {
+                    m.visible = false;
+                    continue;
+                }
+                const markerPos = m.position.clone().normalize();
+                const dot = markerPos.dot(cameraPos);
+                m.visible = (dot > 0);
             }
         }
 
@@ -468,25 +480,47 @@
             }
         }
 
-        // ========== 3D ГЛОБУС (полное пересоздание при каждом включении) ==========
+        // ========== 3D ГЛОБУС ==========
+        function destroyGlobe() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            if (renderer) {
+                renderer.dispose();
+                renderer = null;
+            }
+            if (scene) {
+                scene.clear();
+                scene = null;
+            }
+            camera = null;
+            controls = null;
+            globeSphere = null;
+            markers3D = [];
+            markerIndices = [];
+        }
+
         async function initGlobe() {
             if (!dataLoaded || markersData.length === 0) {
                 console.warn("Данные не загружены");
                 return false;
             }
-            // Уничтожаем предыдущую сцену, если есть
+            // Уничтожаем старую сцену, но canvas оставляем
             destroyGlobe();
             
-            // Создаём всё заново
+            // Получаем актуальные размеры
+            const width = globeContainer.clientWidth;
+            const height = globeContainer.clientHeight;
+            
+            // Создаём сцену
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x050b1a);
             
-            const width = globeContainer.clientWidth;
-            const height = globeContainer.clientHeight;
             camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
             camera.position.set(0, 0, 5);
             
-            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('globe-canvas'), alpha: false });
+            renderer = new THREE.WebGLRenderer({ canvas: globeCanvas, alpha: false });
             renderer.setSize(width, height);
             renderer.setPixelRatio(window.devicePixelRatio);
             
@@ -496,7 +530,7 @@
             controls.rotateSpeed = 1.0;
             controls.zoomSpeed = 1.2;
             controls.enableZoom = true;
-            controls.minDistance = 2.2;   // ограничение приближения (не заглянуть внутрь)
+            controls.minDistance = 2.2;
             controls.maxDistance = 8.0;
             controls.target.set(0, 0, 0);
             
@@ -513,12 +547,14 @@
             // Сфера
             const geometry = new THREE.SphereGeometry(1.8, 128, 128);
             const textureLoader = new THREE.TextureLoader();
-            const mapTexture = textureLoader.load('map.jpg');
+            const mapTexture = await new Promise((resolve) => {
+                const tex = textureLoader.load('map.jpg', () => resolve(tex));
+            });
             const material = new THREE.MeshStandardMaterial({ map: mapTexture, roughness: 0.5, metalness: 0.1 });
             globeSphere = new THREE.Mesh(geometry, material);
             scene.add(globeSphere);
             
-            // Создаём маркеры
+            // Маркеры
             markers3D = [];
             markerIndices = [];
             const sphereRadius = 1.81;
@@ -562,17 +598,19 @@
                     markerObj.scale.set(0.22, 0.22, 0.22);
                 }
                 markerObj.position.set(x, y, z);
-                markerObj.userData = { index: i, name: data.name };
+                markerObj.userData = { index: i, name: data.name, categoryVisible: true };
                 scene.add(markerObj);
                 markers3D.push(markerObj);
                 markerIndices.push(i);
             }
+            
+            // Обновляем видимость по фильтру
             update3DMarkersVisibility();
             
             // Raycaster для кликов
             const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
-            renderer.domElement.addEventListener('click', (event) => {
+            const clickHandler = (event) => {
                 const rect = renderer.domElement.getBoundingClientRect();
                 mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
                 mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -582,99 +620,22 @@
                     const idx = intersects[0].object.userData.index;
                     if (idx !== undefined) openSidebar(idx);
                 }
-            });
-            
-            // Функция обновления видимости маркеров по стороне сферы (обратная сторона невидима)
-            function updateMarkersVisibilityBySide() {
-                if (!camera) return;
-                const cameraPos = camera.position.clone().normalize();
-                for (let m of markers3D) {
-                    if (!m.visible) continue; // уже скрыт фильтром
-                    const markerPos = m.position.clone().normalize();
-                    // Маркер виден, если он на передней полусфере относительно камеры
-                    const dot = markerPos.dot(cameraPos);
-                    m.visible = (dot > 0);
-                }
-                // Применяем фильтр категорий повторно (восстанавливаем видимость, которая была задана фильтром)
-                // Но выше мы перезаписываем visible, поэтому нужно совместить:
-                // сохраним отдельный флаг фильтрации и потом объединим.
-            }
-            
-            // Сохраняем флаги фильтрации отдельно, чтобы не потерять
-            const categoryVisibility = new Array(markers3D.length);
-            for (let i = 0; i < markers3D.length; i++) {
-                const idx = markerIndices[i];
-                categoryVisibility[i] = activeCategories.has(markersData[idx].category);
-                markers3D[i].userData.categoryVisible = categoryVisibility[i];
-            }
-            
-            // Комбинированная функция видимости: учитываем и фильтр, и сторону
-            function updateCombinedVisibility() {
-                if (!camera) return;
-                const cameraPos = camera.position.clone().normalize();
-                for (let i = 0; i < markers3D.length; i++) {
-                    const m = markers3D[i];
-                    const catVisible = m.userData.categoryVisible;
-                    if (!catVisible) {
-                        m.visible = false;
-                        continue;
-                    }
-                    const markerPos = m.position.clone().normalize();
-                    const dot = markerPos.dot(cameraPos);
-                    m.visible = (dot > 0);
-                }
-            }
-            
-            // Обновляем categoryVisible при изменении фильтра
-            const origUpdate3DMarkersVisibility = update3DMarkersVisibility;
-            window.update3DMarkersVisibility = function() {
-                for (let i = 0; i < markers3D.length; i++) {
-                    const idx = markerIndices[i];
-                    const visible = activeCategories.has(markersData[idx].category);
-                    markers3D[i].userData.categoryVisible = visible;
-                }
-                updateCombinedVisibility();
             };
-            update3DMarkersVisibility = window.update3DMarkersVisibility;
+            renderer.domElement.addEventListener('click', clickHandler);
             
-            // Анимационный цикл с обновлением видимости по стороне
+            // Анимация
             function animate() {
                 if (!globeMode) return;
                 animationId = requestAnimationFrame(animate);
-                controls.update(); // обновляем камеру
-                updateCombinedVisibility(); // скрываем маркеры с обратной стороны
+                controls.update();
+                updateCombinedVisibility();
                 renderer.render(scene, camera);
             }
             animate();
             
-            isGlobeInitialized = true;
             return true;
         }
         
-        function destroyGlobe() {
-            if (animationId) {
-                cancelAnimationFrame(animationId);
-                animationId = null;
-            }
-            if (renderer) {
-                renderer.dispose();
-                const canvas = renderer.domElement;
-                if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
-                renderer = null;
-            }
-            if (scene) {
-                scene.clear();
-                scene = null;
-            }
-            camera = null;
-            controls = null;
-            globeSphere = null;
-            markers3D = [];
-            markerIndices = [];
-            isGlobeInitialized = false;
-        }
-        
-        // Сброс вида для глобуса
         function resetGlobeView() {
             if (!globeMode || !controls || !camera) return;
             camera.position.set(0, 0, 5);
@@ -682,26 +643,19 @@
             controls.update();
         }
         
-        // Переключение режимов
         async function toggleGlobeMode() {
             if (!dataLoaded) {
                 alert("Данные ещё загружаются...");
                 return;
             }
             if (!globeMode) {
-                // Включаем глобус
                 globeMode = true;
                 toggleGlobeBtn.textContent = "Карта";
                 container.style.display = "none";
                 globeContainer.style.display = "block";
                 await initGlobe();
-                // Переопределяем кнопку сброса для глобуса
-                resetBtn.onclick = () => {
-                    if (globeMode) resetGlobeView();
-                    else setCoverAndCenter2D();
-                };
+                resetBtn.onclick = () => { if (globeMode) resetGlobeView(); else setCoverAndCenter2D(); };
             } else {
-                // Возврат к карте
                 globeMode = false;
                 toggleGlobeBtn.textContent = "Глобус";
                 globeContainer.style.display = "none";
@@ -784,7 +738,7 @@
             resetBtn.onclick = setCoverAndCenter2D;
             window.addEventListener('resize', () => {
                 if (!globeMode && mapImg.complete) setCoverAndCenter2D();
-                else if (globeMode && renderer) {
+                else if (globeMode && renderer && camera) {
                     const width = globeContainer.clientWidth;
                     const height = globeContainer.clientHeight;
                     renderer.setSize(width, height);
@@ -833,7 +787,6 @@
         
         toggleGlobeBtn.addEventListener('click', toggleGlobeMode);
         
-        // Старт
         if (mapImg.complete) setCoverAndCenter2D();
         else mapImg.onload = setCoverAndCenter2D;
         loadMarkersFromExcel();
