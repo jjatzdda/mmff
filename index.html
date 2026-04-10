@@ -74,12 +74,14 @@
         }
         .close-btn:hover { opacity: 1; }
         #sidebar-title { margin-bottom: 20px; font-size: 1.8rem; font-weight: 600; border-left: 4px solid #007bff; padding-left: 16px; }
+        /* Исправление: изображение без фона и лишних отступов */
         .sidebar-image {
             width: 100%;
             height: auto;
             display: block;
             margin: 15px 0;
             border-radius: 8px;
+            background: transparent;
         }
         .sidebar-text { background: #f9f9f9; padding: 18px; border-radius: 16px; line-height: 1.5; font-size: 0.95rem; color: #222; margin-top: 10px; border-left: 4px solid #007bff; }
         .error-message { position: fixed; bottom: 20px; left: 20px; background: #dc2626; color: white; padding: 10px 18px; border-radius: 40px; z-index: 40; font-size: 14px; }
@@ -191,7 +193,7 @@
             const B = new THREE.Vector3(0, -R, 0);
             const u = 488 / w, v = 617 / h;
             const theta = u * Math.PI * 2 - Math.PI;
-            const phi = Math.PI / 2 - v * Math.PI;
+            const phi = (v * Math.PI) - Math.PI / 2; // исправлено: юг -> север
             const C = new THREE.Vector3(R * Math.cos(phi) * Math.cos(theta), R * Math.sin(phi), R * Math.cos(phi) * Math.sin(theta));
             const AB = new THREE.Vector3().subVectors(B, A);
             const AC = new THREE.Vector3().subVectors(C, A);
@@ -287,6 +289,7 @@
                 sidebarImage.src = d.imageUrl;
                 sidebarImage.alt = d.name;
                 sidebarImage.style.display = 'block';
+                sidebarImage.onerror = () => { sidebarImage.style.display = 'none'; };
             } else {
                 sidebarImage.style.display = 'none';
             }
@@ -385,7 +388,7 @@
             }
         }
         
-        // ---------- 3D ГЛОБУС (ИСПРАВЛЕННЫЙ) ----------
+        // ---------- 3D ГЛОБУС (ИСПРАВЛЕНО ПОЗИЦИОНИРОВАНИЕ) ----------
         function destroyGlobe() {
             if (animationId) cancelAnimationFrame(animationId);
             if (renderer) renderer.dispose();
@@ -425,8 +428,8 @@
             globeSphere = new THREE.Mesh(geometry, material);
             scene.add(globeSphere);
             
-            // ----- МАРКЕРЫ НА СФЕРЕ (исправлено позиционирование и интерактивность) -----
-            const R_marker = 1.83; // заметно выше поверхности
+            // ----- МАРКЕРЫ НА СФЕРЕ (ИСПРАВЛЕННАЯ ФОРМУЛА ШИРОТЫ) -----
+            const R_marker = 1.83;
             const w = mapImageSize.width, h = mapImageSize.height;
             markers3D = []; markerIndices = [];
             
@@ -435,7 +438,9 @@
                 const u = data.imgX / w;
                 const v = data.imgY / h;
                 const theta = u * Math.PI * 2 - Math.PI;
-                const phi = Math.PI / 2 - v * Math.PI;
+                // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: правильное преобразование широты
+                // phi = (v * PI) - PI/2  (от -PI/2 на юге до +PI/2 на севере)
+                const phi = v * Math.PI - Math.PI / 2;
                 const x = R_marker * Math.cos(phi) * Math.cos(theta);
                 const y = R_marker * Math.sin(phi);
                 const z = R_marker * Math.cos(phi) * Math.sin(theta);
@@ -443,7 +448,7 @@
                 let sprite;
                 if (data.icon && data.icon.trim()) {
                     const iconTex = texLoader.load(data.icon);
-                    const mat = new THREE.SpriteMaterial({ map: iconTex, depthTest: false }); // depthTest: false для кликабельности
+                    const mat = new THREE.SpriteMaterial({ map: iconTex, depthTest: false });
                     sprite = new THREE.Sprite(mat);
                     sprite.scale.set(0.28, 0.28, 0.28);
                 } else {
@@ -466,14 +471,13 @@
                 if (i < 5) console.log(`Маркер ${data.name}: пикс(${data.imgX},${data.imgY}) -> UV(${u.toFixed(3)},${v.toFixed(3)}) -> сфера(${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)})`);
             }
             
-            // Видимость по категориям
             markers3D.forEach((m, idx) => {
                 const cat = markersData[markerIndices[idx]].category;
                 m.userData.visibleByCat = activeCategories.has(cat);
             });
             updateVisibility3D();
             
-            // Raycaster для кликов (интерактивность)
+            // Raycaster для кликов
             const raycaster = new THREE.Raycaster();
             const mouseVec = new THREE.Vector2();
             const onClick = (event) => {
