@@ -27,6 +27,7 @@
             background-color: #111;
             font-family: Arial, sans-serif;
         }
+
         #map-container {
             position: relative;
             width: 100%;
@@ -64,6 +65,7 @@
             transition: transform 0.1s;
         }
         .marker:hover { transform: scale(1.1); }
+
         #globe-container {
             position: absolute;
             top: 0;
@@ -79,6 +81,7 @@
             height: 100%;
             display: block;
         }
+
         .top-buttons {
             position: absolute;
             top: 20px;
@@ -87,7 +90,7 @@
             display: flex;
             gap: 12px;
         }
-        #reset-btn, #toggle-globe-btn, #toggle-shade-btn {
+        #reset-btn, #toggle-globe-btn {
             padding: 10px 20px;
             font-size: 16px;
             border: none;
@@ -98,8 +101,8 @@
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
             color: black;
         }
-        #reset-btn:hover, #toggle-globe-btn:hover, #toggle-shade-btn:hover { background-color: white; }
-        #toggle-shade-btn { display: none; }
+        #reset-btn:hover, #toggle-globe-btn:hover { background-color: white; }
+
         #sidebar {
             position: fixed;
             top: 0;
@@ -129,9 +132,10 @@
         #sidebar-title { margin-bottom: 15px; font-size: 1.5rem; }
         .sidebar-image {
             width: 100%;
-            height: auto;
-            display: block;
+            max-height: 200px;
+            object-fit: contain;
             margin: 15px 0;
+            background-color: #eee;
             border-radius: 6px;
         }
         .sidebar-text {
@@ -140,6 +144,7 @@
             border-left: 4px solid #007bff;
             line-height: 1.4;
         }
+
         .filter-menu-container {
             position: absolute;
             top: 20px;
@@ -219,7 +224,6 @@
     </div>
     <div class="top-buttons">
         <button id="reset-btn">Сбросить вид</button>
-        <button id="toggle-shade-btn">Затенение</button>
         <button id="toggle-globe-btn">Глобус</button>
     </div>
     <div class="filter-menu-container">
@@ -258,7 +262,6 @@
         const markersContainer = document.getElementById('markers-container');
         const globeContainer = document.getElementById('globe-container');
         const toggleGlobeBtn = document.getElementById('toggle-globe-btn');
-        const toggleShadeBtn = document.getElementById('toggle-shade-btn');
         const sidebar = document.getElementById('sidebar');
         const closeSidebar = document.getElementById('close-sidebar');
         const sidebarTitle = document.getElementById('sidebar-title');
@@ -281,10 +284,6 @@
         let markers3D = [];
         let markerIndices = [];
         let animationId = null;
-        let shadeEnabled = true;
-        let planeNormal, planeConstant;
-        let savedGlobePosition = null, savedGlobeTarget = null;
-        let isFirstGlobeActivation = true;
 
         // ========== 2D ФУНКЦИИ ==========
         function updateMarkers2D() {
@@ -470,7 +469,6 @@
                 applyFilter();
                 updateMarkers2D();
                 dataLoaded = true;
-                console.log('Загружено маркеров:', markersData.length);
             } catch (err) {
                 console.error('Ошибка загрузки Excel:', err);
                 const errorDiv = document.createElement('div');
@@ -479,104 +477,6 @@
                 document.body.appendChild(errorDiv);
                 setTimeout(() => errorDiv.remove(), 5000);
                 dataLoaded = false;
-            }
-        }
-
-        // ========== ВЫЧИСЛЕНИЕ ПЛОСКОСТИ (В ЛОКАЛЬНЫХ КООРДИНАТАХ) ==========
-        function computeShadePlane() {
-            const R = 1.8;
-            // Северный полюс (верх изображения)
-            const A = new THREE.Vector3(0, R, 0);
-            // Южный полюс (низ изображения)
-            const B = new THREE.Vector3(0, -R, 0);
-            // Точка на текстуре (516,570)
-            const imgW = mapImg.naturalWidth;
-            const imgH = mapImg.naturalHeight;
-            const u = 516 / imgW;
-            const v = 1 - (570 / imgH); // инвертируем Y для текстуры
-            const theta = (u * 2 * Math.PI) - Math.PI;
-            const phi = (Math.PI / 2) - (v * Math.PI);
-            const C = new THREE.Vector3(
-                R * Math.cos(phi) * Math.cos(theta),
-                R * Math.sin(phi),
-                R * Math.cos(phi) * Math.sin(theta)
-            );
-            const AB = new THREE.Vector3().subVectors(B, A);
-            const AC = new THREE.Vector3().subVectors(C, A);
-            let normal = new THREE.Vector3().crossVectors(AB, AC).normalize();
-            let d = -normal.dot(A);
-            
-            // Проверяем, что точка "Море Восточное" (488,617) находится в затенённой полусфере (side < 0)
-            const uTest = 488 / imgW;
-            const vTest = 1 - (617 / imgH);
-            const thetaTest = (uTest * 2 * Math.PI) - Math.PI;
-            const phiTest = (Math.PI / 2) - (vTest * Math.PI);
-            const testPoint = new THREE.Vector3(
-                R * Math.cos(phiTest) * Math.cos(thetaTest),
-                R * Math.sin(phiTest),
-                R * Math.cos(phiTest) * Math.sin(thetaTest)
-            );
-            let testSide = normal.dot(testPoint) + d;
-            if (testSide > 0) {
-                normal.negate();
-                d = -normal.dot(A);
-            }
-            return { normal, constant: d };
-        }
-
-        // ========== ШЕЙДЕРНЫЙ МАТЕРИАЛ ==========
-        function createGlobeMaterial(texture) {
-            const { normal, constant } = computeShadePlane();
-            planeNormal = normal.clone();
-            planeConstant = constant;
-            
-            const vertexShader = `
-                varying vec3 vLocalNormal;
-                varying vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    vLocalNormal = normalize(normal);
-                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                    gl_PointSize = 1.0;
-                    gl_Position = projectionMatrix * mvPosition;
-                }
-            `;
-            const fragmentShader = `
-                uniform sampler2D map;
-                uniform vec3 u_planeNormal;
-                uniform float u_planeConstant;
-                uniform bool u_shadeEnabled;
-                varying vec2 vUv;
-                varying vec3 vLocalNormal;
-                void main() {
-                    vec4 texColor = texture2D(map, vUv);
-                    if (u_shadeEnabled) {
-                        float side = dot(vLocalNormal, u_planeNormal) + u_planeConstant;
-                        if (side < 0.0) {
-                            texColor.rgb *= 0.35;
-                        }
-                    }
-                    gl_FragColor = texColor;
-                }
-            `;
-            const uniforms = {
-                map: { value: texture },
-                u_planeNormal: { value: planeNormal },
-                u_planeConstant: { value: planeConstant },
-                u_shadeEnabled: { value: shadeEnabled }
-            };
-            return new THREE.ShaderMaterial({
-                uniforms: uniforms,
-                vertexShader: vertexShader,
-                fragmentShader: fragmentShader,
-                lights: false,
-                side: THREE.DoubleSide
-            });
-        }
-        
-        function updateShadeUniforms() {
-            if (globeSphere && globeSphere.material) {
-                globeSphere.material.uniforms.u_shadeEnabled.value = shadeEnabled;
             }
         }
 
@@ -601,34 +501,25 @@
             markerIndices = [];
         }
 
-        function setDefaultGlobeView() {
-            if (!controls || !camera) return;
-            const viewDir = planeNormal.clone().normalize();
-            camera.position.copy(viewDir.multiplyScalar(5));
-            controls.target.set(0, 0, 0);
-            controls.update();
-        }
-
-        function resetGlobeView() {
-            if (!globeMode || !controls || !camera) return;
-            setDefaultGlobeView();
-            savedGlobePosition = camera.position.clone();
-            savedGlobeTarget = controls.target.clone();
-        }
-
-        async function initGlobe(resetView = true) {
+        async function initGlobe() {
             if (!dataLoaded || markersData.length === 0) {
                 console.warn("Данные не загружены");
                 return false;
             }
+            // Уничтожаем старую сцену, но canvas оставляем
             destroyGlobe();
             
+            // Получаем актуальные размеры
             const width = globeContainer.clientWidth;
             const height = globeContainer.clientHeight;
             
+            // Создаём сцену
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x050b1a);
+            
             camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            camera.position.set(0, 0, 5);
+            
             renderer = new THREE.WebGLRenderer({ canvas: globeCanvas, alpha: false });
             renderer.setSize(width, height);
             renderer.setPixelRatio(window.devicePixelRatio);
@@ -643,27 +534,37 @@
             controls.maxDistance = 8.0;
             controls.target.set(0, 0, 0);
             
+            // Освещение
+            const ambientLight = new THREE.AmbientLight(0x404060);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+            const backLight = new THREE.PointLight(0x4466cc, 0.3);
+            backLight.position.set(-3, -1, -4);
+            scene.add(backLight);
+            
+            // Сфера
             const geometry = new THREE.SphereGeometry(1.8, 128, 128);
             const textureLoader = new THREE.TextureLoader();
             const mapTexture = await new Promise((resolve) => {
                 const tex = textureLoader.load('map.jpg', () => resolve(tex));
             });
-            const material = createGlobeMaterial(mapTexture);
+            const material = new THREE.MeshStandardMaterial({ map: mapTexture, roughness: 0.5, metalness: 0.1 });
             globeSphere = new THREE.Mesh(geometry, material);
             scene.add(globeSphere);
             
-            // Создаём маркеры с корректным преобразованием координат (инверсия Y)
+            // Маркеры
             markers3D = [];
             markerIndices = [];
-            const sphereRadius = 1.81; // чуть больше сферы, чтобы быть над поверхностью
+            const sphereRadius = 1.81;
             const imgW = mapImg.naturalWidth;
             const imgH = mapImg.naturalHeight;
             
             for (let i = 0; i < markersData.length; i++) {
                 const data = markersData[i];
-                // Преобразование плоских координат в UV: u = x / ширина, v = 1 - y / высота (инверсия Y)
-                const u = data.imgX / imgW;
-                const v = 1 - (data.imgY / imgH);
+                let u = data.imgX / imgW;
+                let v = data.imgY / imgH;
                 const theta = (u * 2 * Math.PI) - Math.PI;
                 const phi = (Math.PI / 2) - (v * Math.PI);
                 const x = sphereRadius * Math.cos(phi) * Math.cos(theta);
@@ -673,7 +574,7 @@
                 let markerObj;
                 if (data.icon && data.icon.trim() !== '') {
                     const imgTexture = textureLoader.load(data.icon);
-                    const spriteMat = new THREE.SpriteMaterial({ map: imgTexture, depthTest: false, depthWrite: false });
+                    const spriteMat = new THREE.SpriteMaterial({ map: imgTexture, depthTest: false });
                     markerObj = new THREE.Sprite(spriteMat);
                     markerObj.scale.set(0.22, 0.22, 0.22);
                 } else {
@@ -692,7 +593,7 @@
                     ctx.font = 'bold 30px Arial';
                     ctx.fillText('📍', 20, 48);
                     const texture = new THREE.CanvasTexture(canvas);
-                    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false });
+                    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false });
                     markerObj = new THREE.Sprite(spriteMat);
                     markerObj.scale.set(0.22, 0.22, 0.22);
                 }
@@ -703,15 +604,10 @@
                 markerIndices.push(i);
             }
             
-            console.log('Создано 3D маркеров:', markers3D.length);
-            // Для отладки выведем позиции первых нескольких
-            for (let i = 0; i < Math.min(3, markers3D.length); i++) {
-                console.log(`Маркер ${i} позиция:`, markers3D[i].position);
-            }
-            
+            // Обновляем видимость по фильтру
             update3DMarkersVisibility();
             
-            // Raycaster для кликов по маркерам
+            // Raycaster для кликов
             const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
             const clickHandler = (event) => {
@@ -727,17 +623,7 @@
             };
             renderer.domElement.addEventListener('click', clickHandler);
             
-            if (resetView || isFirstGlobeActivation || !savedGlobePosition) {
-                setDefaultGlobeView();
-                isFirstGlobeActivation = false;
-                savedGlobePosition = camera.position.clone();
-                savedGlobeTarget = controls.target.clone();
-            } else {
-                camera.position.copy(savedGlobePosition);
-                controls.target.copy(savedGlobeTarget);
-                controls.update();
-            }
-            
+            // Анимация
             function animate() {
                 if (!globeMode) return;
                 animationId = requestAnimationFrame(animate);
@@ -746,7 +632,15 @@
                 renderer.render(scene, camera);
             }
             animate();
+            
             return true;
+        }
+        
+        function resetGlobeView() {
+            if (!globeMode || !controls || !camera) return;
+            camera.position.set(0, 0, 5);
+            controls.target.set(0, 0, 0);
+            controls.update();
         }
         
         async function toggleGlobeMode() {
@@ -755,41 +649,24 @@
                 return;
             }
             if (!globeMode) {
-                if (controls && camera) {
-                    savedGlobePosition = camera.position.clone();
-                    savedGlobeTarget = controls.target.clone();
-                }
                 globeMode = true;
                 toggleGlobeBtn.textContent = "Карта";
-                toggleShadeBtn.style.display = "inline-block";
                 container.style.display = "none";
                 globeContainer.style.display = "block";
-                await initGlobe(false);
+                await initGlobe();
                 resetBtn.onclick = () => { if (globeMode) resetGlobeView(); else setCoverAndCenter2D(); };
-                toggleShadeBtn.onclick = () => {
-                    shadeEnabled = !shadeEnabled;
-                    toggleShadeBtn.textContent = shadeEnabled ? "Затенение" : "Затенение выкл";
-                    updateShadeUniforms();
-                };
-                toggleShadeBtn.textContent = shadeEnabled ? "Затенение" : "Затенение выкл";
             } else {
-                if (controls && camera) {
-                    savedGlobePosition = camera.position.clone();
-                    savedGlobeTarget = controls.target.clone();
-                }
                 globeMode = false;
                 toggleGlobeBtn.textContent = "Глобус";
-                toggleShadeBtn.style.display = "none";
                 globeContainer.style.display = "none";
                 container.style.display = "block";
                 destroyGlobe();
-                applyFilter();
                 setCoverAndCenter2D();
                 updateMarkers2D();
                 resetBtn.onclick = setCoverAndCenter2D;
             }
         }
-
+        
         // ========== 2D СОБЫТИЯ ==========
         function init2DEvents() {
             container.addEventListener('wheel', (e) => {
@@ -870,8 +747,8 @@
                 }
             });
         }
-
-        // ========== ИНТЕРАКЦИИ САЙДБАРА И ФИЛЬТРОВ ==========
+        
+        // ========== ОСТАЛЬНЫЕ ИНТЕРАКЦИИ ==========
         closeSidebar.addEventListener('click', () => sidebar.classList.remove('open'));
         document.addEventListener('click', (e) => {
             if (!sidebar.contains(e.target) && !e.target.classList?.contains('marker') && !e.target.classList?.contains('sprite')) {
@@ -909,24 +786,11 @@
         });
         
         toggleGlobeBtn.addEventListener('click', toggleGlobeMode);
-        toggleShadeBtn.addEventListener('click', () => {});
-        toggleShadeBtn.style.display = "none";
         
-        // Запуск
         if (mapImg.complete) setCoverAndCenter2D();
         else mapImg.onload = setCoverAndCenter2D;
         loadMarkersFromExcel();
         init2DEvents();
-        
-        mapImg.onload = () => {
-            setCoverAndCenter2D();
-            if (globeMode && globeSphere) {
-                const newMat = createGlobeMaterial(globeSphere.material.uniforms.map.value);
-                globeSphere.material.dispose();
-                globeSphere.material = newMat;
-                updateShadeUniforms();
-            }
-        };
     </script>
 </body>
 </html>
