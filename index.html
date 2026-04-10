@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Интерактивная карта Луны — 2D и 3D Глобус</title>
+    <title>Интерактивная карта Луны — 2D и 3D Глобус (ИСПРАВЛЕНО ПОЛНОСТЬЮ)</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
     <script type="importmap">
         {
@@ -74,7 +74,6 @@
         }
         .close-btn:hover { opacity: 1; }
         #sidebar-title { margin-bottom: 20px; font-size: 1.8rem; font-weight: 600; border-left: 4px solid #007bff; padding-left: 16px; }
-        /* Исправление: изображение без фона и лишних отступов */
         .sidebar-image {
             width: 100%;
             height: auto;
@@ -122,16 +121,16 @@
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        // ---------- ГЛОБАЛЬНЫЕ ДАННЫЕ ----------
-        let markersData = [];       
-        let markerElements2D = [];   
+        // ==================== ГЛОБАЛЬНЫЕ ДАННЫЕ ====================
+        let markersData = [];          // все маркеры из Excel
+        let markerElements2D = [];     // DOM-элементы маркеров на плоской карте
         let categoriesSet = new Set();
         let activeCategories = new Set();
         let dataLoaded = false;
         let mapImageReady = false;
         let mapImageSize = { width: 0, height: 0 };
         
-        // DOM
+        // DOM элементы
         const container = document.getElementById('map-container');
         const mapImg = document.getElementById('map-image');
         const resetBtn = document.getElementById('reset-btn');
@@ -158,15 +157,14 @@
         // 3D переменные
         let globeMode = false;
         let scene, camera, renderer, controls, globeSphere;
-        let markers3D = [];
-        let markerIndices = [];
+        let markers3D = [];           // массив 3D спрайтов
         let animationId = null;
         let shadeEnabled = true;
         let planeNormal = null, planeConstant = null;
         let savedGlobePos = null, savedGlobeTarget = null;
         let firstGlobe = true;
         
-        // ---------- ДОЖИДАНИЕ ЗАГРУЗКИ КАРТЫ ----------
+        // ==================== ЗАГРУЗКА КАРТЫ ====================
         function waitForMap() {
             return new Promise((resolve) => {
                 if (mapImg.complete && mapImg.naturalWidth > 0) {
@@ -184,28 +182,35 @@
             });
         }
         
-        // ---------- ПЛОСКОСТЬ ЗАТЕНЕНИЯ ----------
+        // ==================== ПЛОСКОСТЬ ЗАТЕНЕНИЯ (шейдер) ====================
         function computeShadePlane() {
             if (!mapImageReady) return { normal: new THREE.Vector3(0,1,0), constant: -1.8 };
             const R = 1.8;
             const w = mapImageSize.width, h = mapImageSize.height;
+            // Северный и южный полюса
             const A = new THREE.Vector3(0, R, 0);
             const B = new THREE.Vector3(0, -R, 0);
-            const u = 488 / w, v = 617 / h;
+            // Контрольная точка: Море Восточное (488,617) - должно быть в тени
+            const u = 488 / w;
+            const v = 617 / h;
             const theta = u * Math.PI * 2 - Math.PI;
-            const phi = (v * Math.PI) - Math.PI / 2; // исправлено: юг -> север
+            const phi = Math.PI / 2 - v * Math.PI;
             const C = new THREE.Vector3(R * Math.cos(phi) * Math.cos(theta), R * Math.sin(phi), R * Math.cos(phi) * Math.sin(theta));
             const AB = new THREE.Vector3().subVectors(B, A);
             const AC = new THREE.Vector3().subVectors(C, A);
             let normal = new THREE.Vector3().crossVectors(AB, AC).normalize();
             let d = -normal.dot(A);
-            if (normal.dot(C) + d > 0) { normal.negate(); d = -normal.dot(A); }
+            if (normal.dot(C) + d > 0) {
+                normal.negate();
+                d = -normal.dot(A);
+            }
             return { normal, constant: d };
         }
         
         function createGlobeMaterial(texture) {
             const { normal, constant } = computeShadePlane();
-            planeNormal = normal; planeConstant = constant;
+            planeNormal = normal.clone();
+            planeConstant = constant;
             const vertexShader = `
                 varying vec3 vLocalNormal;
                 varying vec2 vUv;
@@ -233,23 +238,32 @@
                 }
             `;
             return new THREE.ShaderMaterial({
-                uniforms: { map: { value: texture }, u_planeNormal: { value: planeNormal }, u_planeConstant: { value: planeConstant }, u_shadeEnabled: { value: shadeEnabled } },
-                vertexShader, fragmentShader, side: THREE.DoubleSide
+                uniforms: {
+                    map: { value: texture },
+                    u_planeNormal: { value: planeNormal },
+                    u_planeConstant: { value: planeConstant },
+                    u_shadeEnabled: { value: shadeEnabled }
+                },
+                vertexShader,
+                fragmentShader,
+                side: THREE.DoubleSide
             });
         }
         
         function updateShade() {
-            if (globeSphere) globeSphere.material.uniforms.u_shadeEnabled.value = shadeEnabled;
+            if (globeSphere && globeSphere.material) {
+                globeSphere.material.uniforms.u_shadeEnabled.value = shadeEnabled;
+            }
         }
         
-        // ---------- ФИЛЬТРАЦИЯ ----------
+        // ==================== ФИЛЬТРАЦИЯ ====================
         function applyFilter() {
             markerElements2D.forEach((m, i) => {
                 m.style.display = activeCategories.has(markersData[i].category) ? 'block' : 'none';
             });
             if (globeMode && markers3D.length) {
-                markers3D.forEach((m, idx) => {
-                    const cat = markersData[markerIndices[idx]].category;
+                markers3D.forEach(m => {
+                    const cat = markersData[m.userData.index].category;
                     m.userData.visibleByCat = activeCategories.has(cat);
                 });
                 updateVisibility3D();
@@ -296,7 +310,7 @@
             sidebar.classList.add('open');
         }
         
-        // ---------- 2D УПРАВЛЕНИЕ ----------
+        // ==================== 2D УПРАВЛЕНИЕ ====================
         function updateMarkers2D() {
             markerElements2D.forEach((m, i) => {
                 const data = markersData[i];
@@ -326,7 +340,7 @@
             translateY = Math.min(0, Math.max(rect.height - h, translateY));
         }
         
-        // ---------- ЗАГРУЗКА EXCEL ----------
+        // ==================== ЗАГРУЗКА EXCEL ====================
         async function loadExcel() {
             try {
                 const resp = await fetch('data.xlsx');
@@ -388,7 +402,7 @@
             }
         }
         
-        // ---------- 3D ГЛОБУС (ИСПРАВЛЕНО ПОЗИЦИОНИРОВАНИЕ) ----------
+        // ==================== 3D ГЛОБУС (ПОЛНОСТЬЮ ПЕРЕРАБОТАН) ====================
         function destroyGlobe() {
             if (animationId) cancelAnimationFrame(animationId);
             if (renderer) renderer.dispose();
@@ -396,54 +410,57 @@
             camera = null; controls = null; globeSphere = null; markers3D = [];
         }
         
-        function setDefaultGlobeView() {
-            if (!controls || !camera || !planeNormal) return;
-            const dir = planeNormal.clone().negate().normalize();
-            camera.position.copy(dir.multiplyScalar(4.8));
-            controls.target.set(0,0,0);
-            controls.update();
-        }
-        
-        function resetGlobeView() {
-            if (globeMode && controls && camera) setDefaultGlobeView();
+        // Функция для преобразования пиксельных координат в 3D позицию на сфере
+        function pixelToSphere(x, y, imgW, imgH, radius) {
+            const u = x / imgW;                     // 0..1 слева направо
+            const v = y / imgH;                     // 0..1 сверху вниз
+            const theta = u * Math.PI * 2 - Math.PI; // долгота: -π ... +π (центр карты = 0°)
+            const phi = Math.PI / 2 - v * Math.PI;   // широта: +π/2 (север) ... -π/2 (юг)
+            const px = radius * Math.cos(phi) * Math.cos(theta);
+            const py = radius * Math.sin(phi);
+            const pz = radius * Math.cos(phi) * Math.sin(theta);
+            return { x: px, y: py, z: pz };
         }
         
         async function initGlobe(resetView = true) {
             if (!dataLoaded || !mapImageReady) return false;
             destroyGlobe();
-            const width = globeContainer.clientWidth, height = globeContainer.clientHeight;
-            scene = new THREE.Scene(); scene.background = new THREE.Color(0x050b1a);
-            camera = new THREE.PerspectiveCamera(45, width/height, 0.1, 1000);
-            renderer = new THREE.WebGLRenderer({ canvas: globeCanvas, alpha: false });
-            renderer.setSize(width, height); renderer.setPixelRatio(window.devicePixelRatio);
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true; controls.dampingFactor = 0.06; controls.rotateSpeed = 1.0;
-            controls.zoomSpeed = 1.2; controls.enableZoom = true; controls.minDistance = 2.2; controls.maxDistance = 8.0;
-            controls.target.set(0,0,0);
             
+            const width = globeContainer.clientWidth, height = globeContainer.clientHeight;
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x050b1a);
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ canvas: globeCanvas, alpha: false });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.06;
+            controls.rotateSpeed = 1.0;
+            controls.zoomSpeed = 1.2;
+            controls.enableZoom = true;
+            controls.minDistance = 2.2;
+            controls.maxDistance = 8.0;
+            controls.target.set(0, 0, 0);
+            
+            // Сфера с текстурой
             const geometry = new THREE.SphereGeometry(1.8, 256, 256);
             const texLoader = new THREE.TextureLoader();
             const mapTex = await new Promise(resolve => { texLoader.load('map.jpg', t => resolve(t)); });
             const material = createGlobeMaterial(mapTex);
             globeSphere = new THREE.Mesh(geometry, material);
+            // Отключаем raycast для сферы, чтобы клики проходили сквозь неё к маркерам
+            globeSphere.raycast = () => {};
             scene.add(globeSphere);
             
-            // ----- МАРКЕРЫ НА СФЕРЕ (ИСПРАВЛЕННАЯ ФОРМУЛА ШИРОТЫ) -----
+            // Создаём маркеры на сфере
             const R_marker = 1.83;
             const w = mapImageSize.width, h = mapImageSize.height;
-            markers3D = []; markerIndices = [];
+            markers3D = [];
             
             for (let i = 0; i < markersData.length; i++) {
                 const data = markersData[i];
-                const u = data.imgX / w;
-                const v = data.imgY / h;
-                const theta = u * Math.PI * 2 - Math.PI;
-                // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: правильное преобразование широты
-                // phi = (v * PI) - PI/2  (от -PI/2 на юге до +PI/2 на севере)
-                const phi = v * Math.PI - Math.PI / 2;
-                const x = R_marker * Math.cos(phi) * Math.cos(theta);
-                const y = R_marker * Math.sin(phi);
-                const z = R_marker * Math.cos(phi) * Math.sin(theta);
+                const pos = pixelToSphere(data.imgX, data.imgY, w, h, R_marker);
                 
                 let sprite;
                 if (data.icon && data.icon.trim()) {
@@ -452,32 +469,47 @@
                     sprite = new THREE.Sprite(mat);
                     sprite.scale.set(0.28, 0.28, 0.28);
                 } else {
-                    const canvas = document.createElement('canvas'); canvas.width = 80; canvas.height = 80;
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 80;
+                    canvas.height = 80;
                     const ctx = canvas.getContext('2d');
-                    ctx.fillStyle = '#ff4466'; ctx.beginPath(); ctx.arc(40,40,34,0,2*Math.PI); ctx.fill();
-                    ctx.strokeStyle = 'white'; ctx.lineWidth = 3; ctx.stroke();
-                    ctx.fillStyle = 'white'; ctx.font = 'bold 40px "Segoe UI"'; ctx.fillText('●', 28, 58);
+                    ctx.fillStyle = '#ff4466';
+                    ctx.beginPath();
+                    ctx.arc(40, 40, 34, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 40px "Segoe UI"';
+                    ctx.fillText('●', 28, 58);
                     const tex = new THREE.CanvasTexture(canvas);
                     const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
                     sprite = new THREE.Sprite(mat);
                     sprite.scale.set(0.3, 0.3, 0.3);
                 }
-                sprite.position.set(x, y, z);
-                sprite.userData = { index: i, name: data.name, visibleByCat: true };
+                sprite.position.set(pos.x, pos.y, pos.z);
+                sprite.userData = {
+                    index: i,
+                    name: data.name,
+                    visibleByCat: true
+                };
                 scene.add(sprite);
                 markers3D.push(sprite);
-                markerIndices.push(i);
                 
-                if (i < 5) console.log(`Маркер ${data.name}: пикс(${data.imgX},${data.imgY}) -> UV(${u.toFixed(3)},${v.toFixed(3)}) -> сфера(${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)})`);
+                if (i < 5) {
+                    console.log(`Маркер ${data.name}: пикс(${data.imgX},${data.imgY}) -> 3D(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})`);
+                }
             }
             
-            markers3D.forEach((m, idx) => {
-                const cat = markersData[markerIndices[idx]].category;
+            // Устанавливаем видимость по категориям
+            markers3D.forEach(m => {
+                const cat = markersData[m.userData.index].category;
                 m.userData.visibleByCat = activeCategories.has(cat);
             });
             updateVisibility3D();
             
-            // Raycaster для кликов
+            // Обработчик кликов на маркеры
             const raycaster = new THREE.Raycaster();
             const mouseVec = new THREE.Vector2();
             const onClick = (event) => {
@@ -488,11 +520,15 @@
                 const intersects = raycaster.intersectObjects(markers3D);
                 if (intersects.length > 0) {
                     const idx = intersects[0].object.userData.index;
-                    if (idx !== undefined) openSidebar(idx);
+                    if (idx !== undefined) {
+                        console.log('Клик по маркеру:', markersData[idx].name);
+                        openSidebar(idx);
+                    }
                 }
             };
             renderer.domElement.addEventListener('click', onClick);
             
+            // Начальная позиция камеры (освещённая сторона)
             if (resetView || firstGlobe || !savedGlobePos) {
                 setDefaultGlobeView();
                 firstGlobe = false;
@@ -515,10 +551,29 @@
             return true;
         }
         
+        function setDefaultGlobeView() {
+            if (!controls || !camera || !planeNormal) return;
+            // Направление на освещённую сторону (противоположное нормали плоскости затенения)
+            const lightDir = planeNormal.clone().negate().normalize();
+            camera.position.copy(lightDir.multiplyScalar(4.5));
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+        
+        function resetGlobeView() {
+            if (globeMode && controls && camera) setDefaultGlobeView();
+        }
+        
         async function toggleGlobe() {
-            if (!dataLoaded || !mapImageReady) { alert("Подождите загрузки данных..."); return; }
+            if (!dataLoaded || !mapImageReady) {
+                alert("Подождите загрузки данных...");
+                return;
+            }
             if (!globeMode) {
-                if (controls && camera) { savedGlobePos = camera.position.clone(); savedGlobeTarget = controls.target.clone(); }
+                if (controls && camera) {
+                    savedGlobePos = camera.position.clone();
+                    savedGlobeTarget = controls.target.clone();
+                }
                 globeMode = true;
                 toggleGlobeBtn.textContent = "Карта";
                 toggleShadeBtn.style.display = "inline-block";
@@ -526,9 +581,16 @@
                 globeContainer.style.display = "block";
                 await initGlobe(false);
                 resetBtn.onclick = () => { if (globeMode) resetGlobeView(); else setCoverAndCenter2D(); };
-                toggleShadeBtn.onclick = () => { shadeEnabled = !shadeEnabled; toggleShadeBtn.textContent = shadeEnabled ? "Затенение" : "Затенение выкл"; updateShade(); };
+                toggleShadeBtn.onclick = () => {
+                    shadeEnabled = !shadeEnabled;
+                    toggleShadeBtn.textContent = shadeEnabled ? "Затенение" : "Затенение выкл";
+                    updateShade();
+                };
             } else {
-                if (controls && camera) { savedGlobePos = camera.position.clone(); savedGlobeTarget = controls.target.clone(); }
+                if (controls && camera) {
+                    savedGlobePos = camera.position.clone();
+                    savedGlobeTarget = controls.target.clone();
+                }
                 globeMode = false;
                 toggleGlobeBtn.textContent = "Глобус";
                 toggleShadeBtn.style.display = "none";
@@ -542,7 +604,7 @@
             }
         }
         
-        // ---------- 2D СОБЫТИЯ ----------
+        // ==================== 2D СОБЫТИЯ ====================
         function init2DEvents() {
             container.addEventListener('wheel', (e) => {
                 e.preventDefault();
@@ -593,7 +655,7 @@
             });
         }
         
-        // ---------- ЗАПУСК ----------
+        // ==================== ЗАПУСК ====================
         (async () => {
             await waitForMap();
             await loadExcel();
