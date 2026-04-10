@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Интерактивная карта Луны — 2D и 3D Глобус (CSS2D маркеры)</title>
+    <title>Интерактивная карта Луны — 2D и 3D Глобус (ИСПРАВЛЕНО)</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
     <script type="importmap">
         {
@@ -27,14 +27,8 @@
             filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
         }
         .marker:hover { transform: scale(1.15); z-index: 100; }
-        #globe-container {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 5; background-color: #000; display: none;
-            overflow: hidden;
-        }
-        #globe-canvas {
-            width: 100%; height: 100%; display: block;
-        }
+        #globe-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; background-color: #000; display: none; }
+        #globe-canvas { width: 100%; height: 100%; display: block; }
         .top-buttons {
             position: absolute; top: 20px; right: 20px; z-index: 20; display: flex; gap: 12px;
         }
@@ -90,36 +84,6 @@
         }
         .sidebar-text { background: #f9f9f9; padding: 18px; border-radius: 16px; line-height: 1.5; font-size: 0.95rem; color: #222; margin-top: 10px; border-left: 4px solid #007bff; }
         .error-message { position: fixed; bottom: 20px; left: 20px; background: #dc2626; color: white; padding: 10px 18px; border-radius: 40px; z-index: 40; font-size: 14px; }
-        
-        /* Стили для CSS2D маркеров на глобусе */
-        .globe-marker {
-            width: 40px;
-            height: 40px;
-            background-size: contain;
-            background-position: center;
-            background-repeat: no-repeat;
-            cursor: pointer;
-            transition: transform 0.1s;
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
-        }
-        .globe-marker:hover {
-            transform: scale(1.2);
-            z-index: 100;
-        }
-        /* Стиль для маркера без иконки */
-        .globe-marker-default {
-            width: 40px;
-            height: 40px;
-            background-color: #ff4466;
-            border: 3px solid white;
-            border-radius: 50%;
-            box-shadow: 0 0 12px rgba(255,68,102,0.8);
-            cursor: pointer;
-            transition: transform 0.1s;
-        }
-        .globe-marker-default:hover {
-            transform: scale(1.2);
-        }
     </style>
 </head>
 <body>
@@ -156,7 +120,6 @@
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
         // ==================== ГЛОБАЛЬНЫЕ ДАННЫЕ ====================
         let markersData = [];
@@ -193,8 +156,8 @@
         
         // 3D переменные
         let globeMode = false;
-        let scene, camera, renderer, labelRenderer, controls, globeSphere;
-        let markers3D = [];           // массив CSS2DObject
+        let scene, camera, renderer, controls, globeSphere;
+        let markers3D = [];           // массив Sprite
         let animationId = null;
         let shadeEnabled = true;
         let planeNormal = null, planeConstant = null;
@@ -296,9 +259,19 @@
                 markers3D.forEach(m => {
                     const cat = markersData[m.userData.index].category;
                     m.userData.visibleByCat = activeCategories.has(cat);
-                    m.element.style.display = m.userData.visibleByCat ? 'block' : 'none';
                 });
+                updateVisibility3D();
             }
+        }
+        
+        function updateVisibility3D() {
+            if (!camera) return;
+            const camDir = camera.position.clone().normalize();
+            markers3D.forEach(m => {
+                if (!m.userData.visibleByCat) { m.visible = false; return; }
+                const dir = m.position.clone().normalize();
+                m.visible = (dir.dot(camDir) > 0);
+            });
         }
         
         function buildFilterMenu() {
@@ -423,22 +396,20 @@
             }
         }
         
-        // ==================== 3D ГЛОБУС С CSS2D МАРКЕРАМИ ====================
+        // ==================== 3D ГЛОБУС (СПРАЙТЫ, ИСПРАВЛЕНО) ====================
         function destroyGlobe() {
             if (animationId) cancelAnimationFrame(animationId);
             if (renderer) renderer.dispose();
-            if (labelRenderer) labelRenderer.domElement.remove();
             if (scene) scene.clear();
             camera = null; controls = null; globeSphere = null; markers3D = [];
         }
         
-        // Преобразование пиксельных координат в 3D позицию на сфере (радиус = R)
+        // Преобразование пиксельных координат в 3D позицию на сфере (радиус = radius)
         function pixelToSphere(x, y, imgW, imgH, radius) {
-            const u = x / imgW;                     // 0..1 слева направо
-            const v = y / imgH;                     // 0..1 сверху вниз (верх = север)
-            // В сферических координатах: долгота от -π до π, широта от +π/2 (север) до -π/2 (юг)
-            const theta = u * Math.PI * 2 - Math.PI;
-            const phi = Math.PI / 2 - v * Math.PI;   // правильное преобразование: v=0 -> phi=+π/2 (север)
+            const u = x / imgW;   // 0..1 слева направо
+            const v = y / imgH;   // 0..1 сверху вниз (0 - север, 1 - юг)
+            const theta = u * Math.PI * 2 - Math.PI;      // долгота: -π ... +π (центр карты = 0°)
+            const phi = Math.PI / 2 - v * Math.PI;        // широта: +π/2 (север) ... -π/2 (юг)
             const px = radius * Math.cos(phi) * Math.cos(theta);
             const py = radius * Math.sin(phi);
             const pz = radius * Math.cos(phi) * Math.sin(theta);
@@ -447,6 +418,7 @@
         
         function setDefaultGlobeView() {
             if (!controls || !camera || !planeNormal) return;
+            // Направление на освещённую сторону (противоположное нормали плоскости затенения)
             const lightDir = planeNormal.clone().negate().normalize();
             camera.position.copy(lightDir.multiplyScalar(4.5));
             controls.target.set(0, 0, 0);
@@ -462,27 +434,12 @@
             destroyGlobe();
             
             const width = globeContainer.clientWidth, height = globeContainer.clientHeight;
-            
-            // Сцена и камера
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x050b1a);
             camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-            
-            // WebGL рендерер для сферы
             renderer = new THREE.WebGLRenderer({ canvas: globeCanvas, alpha: false });
             renderer.setSize(width, height);
             renderer.setPixelRatio(window.devicePixelRatio);
-            
-            // CSS2D рендерер для маркеров (всегда поверх)
-            labelRenderer = new CSS2DRenderer();
-            labelRenderer.setSize(width, height);
-            labelRenderer.domElement.style.position = 'absolute';
-            labelRenderer.domElement.style.top = '0px';
-            labelRenderer.domElement.style.left = '0px';
-            labelRenderer.domElement.style.pointerEvents = 'auto';
-            globeContainer.appendChild(labelRenderer.domElement);
-            
-            // Орбитальные контролы работают с камерой, оба рендерера будут обновляться
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.06;
@@ -493,7 +450,6 @@
             controls.maxDistance = 8.0;
             controls.target.set(0, 0, 0);
             
-            // Сфера с текстурой
             const geometry = new THREE.SphereGeometry(1.8, 256, 256);
             const texLoader = new THREE.TextureLoader();
             const mapTex = await new Promise(resolve => { texLoader.load('map.jpg', t => resolve(t)); });
@@ -501,8 +457,8 @@
             globeSphere = new THREE.Mesh(geometry, material);
             scene.add(globeSphere);
             
-            // Создаём CSS2D маркеры
-            const R_marker = 1.83; // чуть выше поверхности
+            // Создаём спрайты-маркеры
+            const R_marker = 1.83;
             const w = mapImageSize.width, h = mapImageSize.height;
             markers3D = [];
             
@@ -510,42 +466,67 @@
                 const data = markersData[i];
                 const pos = pixelToSphere(data.imgX, data.imgY, w, h, R_marker);
                 
-                // Создаём HTML элемент маркера
-                const div = document.createElement('div');
+                let sprite;
                 if (data.icon && data.icon.trim()) {
-                    div.className = 'globe-marker';
-                    div.style.backgroundImage = `url('${data.icon}')`;
-                    div.style.backgroundColor = 'transparent';
-                    div.style.border = 'none';
+                    const iconTex = texLoader.load(data.icon);
+                    const mat = new THREE.SpriteMaterial({ map: iconTex, depthTest: false });
+                    sprite = new THREE.Sprite(mat);
+                    sprite.scale.set(0.28, 0.28, 0.28);
                 } else {
-                    div.className = 'globe-marker-default';
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 80;
+                    canvas.height = 80;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ff4466';
+                    ctx.beginPath();
+                    ctx.arc(40, 40, 34, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                    ctx.fillStyle = 'white';
+                    ctx.font = 'bold 40px "Segoe UI"';
+                    ctx.fillText('●', 28, 58);
+                    const tex = new THREE.CanvasTexture(canvas);
+                    const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
+                    sprite = new THREE.Sprite(mat);
+                    sprite.scale.set(0.3, 0.3, 0.3);
                 }
-                div.style.width = '40px';
-                div.style.height = '40px';
-                div.style.cursor = 'pointer';
-                div.title = data.name;
-                div.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    openSidebar(i);
-                });
-                
-                const label = new CSS2DObject(div);
-                label.position.copy(pos);
-                label.userData = { index: i, name: data.name, visibleByCat: true };
-                scene.add(label);
-                markers3D.push(label);
+                sprite.position.copy(pos);
+                sprite.userData = { index: i, name: data.name, visibleByCat: true };
+                scene.add(sprite);
+                markers3D.push(sprite);
                 
                 if (i < 5) {
-                    console.log(`Маркер ${data.name}: пикс(${data.imgX},${data.imgY}) -> 3D(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})`);
+                    console.log(`Маркер ${data.name}: пикс(${data.imgX},${data.imgY}) -> UV(${(data.imgX/w).toFixed(3)},${(data.imgY/h).toFixed(3)}) -> 3D(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})`);
                 }
             }
             
-            // Применяем фильтр категорий к CSS2D маркерам
+            // Устанавливаем видимость по категориям
             markers3D.forEach(m => {
                 const cat = markersData[m.userData.index].category;
                 m.userData.visibleByCat = activeCategories.has(cat);
-                m.element.style.display = m.userData.visibleByCat ? 'block' : 'none';
             });
+            updateVisibility3D();
+            
+            // Raycaster для кликов по спрайтам
+            const raycaster = new THREE.Raycaster();
+            const mouseVec = new THREE.Vector2();
+            const onClick = (event) => {
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouseVec.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                mouseVec.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                raycaster.setFromCamera(mouseVec, camera);
+                const intersects = raycaster.intersectObjects(markers3D);
+                if (intersects.length > 0) {
+                    const idx = intersects[0].object.userData.index;
+                    if (idx !== undefined) {
+                        console.log('Клик по маркеру:', markersData[idx].name);
+                        openSidebar(idx);
+                    }
+                }
+            };
+            renderer.domElement.addEventListener('click', onClick);
             
             // Начальная позиция камеры
             if (resetView || firstGlobe || !savedGlobePos) {
@@ -559,13 +540,12 @@
                 controls.update();
             }
             
-            // Анимация: обновляем оба рендерера
             function animate() {
                 if (!globeMode) return;
                 animationId = requestAnimationFrame(animate);
-                controls.update(); // обновляем камеру
+                controls.update();      // обязательно для OrbitControls
+                updateVisibility3D();   // скрываем маркеры на обратной стороне
                 renderer.render(scene, camera);
-                labelRenderer.render(scene, camera);
             }
             animate();
             return true;
@@ -655,10 +635,9 @@
             resetBtn.onclick = setCoverAndCenter2D;
             window.addEventListener('resize', () => {
                 if (!globeMode && mapImageReady) setCoverAndCenter2D();
-                else if (globeMode && renderer && camera && labelRenderer) {
+                else if (globeMode && renderer && camera) {
                     const w = globeContainer.clientWidth, h = globeContainer.clientHeight;
                     renderer.setSize(w, h);
-                    labelRenderer.setSize(w, h);
                     camera.aspect = w/h;
                     camera.updateProjectionMatrix();
                 }
@@ -673,7 +652,7 @@
             init2DEvents();
             closeSidebar.addEventListener('click', () => sidebar.classList.remove('open'));
             document.addEventListener('click', (e) => {
-                if (!sidebar.contains(e.target) && !e.target.classList?.contains('marker') && !e.target.classList?.contains('globe-marker') && !e.target.classList?.contains('globe-marker-default'))
+                if (!sidebar.contains(e.target) && !e.target.classList?.contains('marker') && !e.target.classList?.contains('sprite'))
                     sidebar.classList.remove('open');
             });
             let filterOpen = false;
