@@ -481,12 +481,12 @@
             }
         }
 
-        // ========== ВЫЧИСЛЕНИЕ ПЛОСКОСТИ ДЛЯ ЗАТЕНЕНИЯ ==========
+        // ========== ВЫЧИСЛЕНИЕ ПЛОСКОСТИ (В ЛОКАЛЬНЫХ КООРДИНАТАХ) ==========
         function computeShadePlane() {
             const R = 1.8;
-            // Северный полюс
+            // Северный полюс (верх изображения)
             const A = new THREE.Vector3(0, R, 0);
-            // Южный полюс
+            // Южный полюс (низ изображения)
             const B = new THREE.Vector3(0, -R, 0);
             // Точка на текстуре (516,570)
             const imgW = mapImg.naturalWidth;
@@ -523,35 +523,39 @@
             return { normal, constant: d };
         }
 
-        // ========== ШЕЙДЕРНЫЙ МАТЕРИАЛ ДЛЯ СФЕРЫ ==========
+        // ========== ШЕЙДЕРНЫЙ МАТЕРИАЛ (РАБОТАЕТ В ЛОКАЛЬНЫХ КООРДИНАТАХ) ==========
         function createGlobeMaterial(texture) {
             const { normal, constant } = computeShadePlane();
             planeNormal = normal.clone();
             planeConstant = constant;
+            
+            // Вершинный шейдер: передаём локальную нормаль и UV
             const vertexShader = `
-                varying vec3 vNormal;
+                varying vec3 vLocalNormal;
                 varying vec2 vUv;
                 void main() {
                     vUv = uv;
-                    vNormal = normalize(normalMatrix * normal);
+                    vLocalNormal = normalize(normal); // локальная нормаль (объектное пространство)
                     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
                     gl_PointSize = 1.0;
                     gl_Position = projectionMatrix * mvPosition;
                 }
             `;
+            // Фрагментный шейдер: вычисляем сторону относительно плоскости в локальных координатах
             const fragmentShader = `
                 uniform sampler2D map;
                 uniform vec3 u_planeNormal;
                 uniform float u_planeConstant;
                 uniform bool u_shadeEnabled;
                 varying vec2 vUv;
-                varying vec3 vNormal;
+                varying vec3 vLocalNormal;
                 void main() {
                     vec4 texColor = texture2D(map, vUv);
-                    vec3 normal = normalize(vNormal);
-                    float side = dot(normal, u_planeNormal) + u_planeConstant;
-                    if (u_shadeEnabled && side < 0.0) {
-                        texColor.rgb *= 0.35;
+                    if (u_shadeEnabled) {
+                        float side = dot(vLocalNormal, u_planeNormal) + u_planeConstant;
+                        if (side < 0.0) {
+                            texColor.rgb *= 0.35;
+                        }
                     }
                     gl_FragColor = texColor;
                 }
@@ -600,6 +604,7 @@
 
         function setDefaultGlobeView() {
             if (!controls || !camera) return;
+            // Направление на незатенённую полусферу (side > 0) — это нормаль плоскости, но для вида снаружи сферы
             const viewDir = planeNormal.clone().normalize();
             camera.position.copy(viewDir.multiplyScalar(5));
             controls.target.set(0, 0, 0);
@@ -649,6 +654,7 @@
             globeSphere = new THREE.Mesh(geometry, material);
             scene.add(globeSphere);
             
+            // Создаём маркеры (спрайты с корректным depthTest)
             markers3D = [];
             markerIndices = [];
             const sphereRadius = 1.81;
@@ -667,7 +673,7 @@
                 let markerObj;
                 if (data.icon && data.icon.trim() !== '') {
                     const imgTexture = textureLoader.load(data.icon);
-                    const spriteMat = new THREE.SpriteMaterial({ map: imgTexture, depthTest: false });
+                    const spriteMat = new THREE.SpriteMaterial({ map: imgTexture, depthTest: true, depthWrite: true });
                     markerObj = new THREE.Sprite(spriteMat);
                     markerObj.scale.set(0.22, 0.22, 0.22);
                 } else {
@@ -686,7 +692,7 @@
                     ctx.font = 'bold 30px Arial';
                     ctx.fillText('📍', 20, 48);
                     const texture = new THREE.CanvasTexture(canvas);
-                    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+                    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: true, depthWrite: true });
                     markerObj = new THREE.Sprite(spriteMat);
                     markerObj.scale.set(0.22, 0.22, 0.22);
                 }
@@ -699,6 +705,7 @@
             
             update3DMarkersVisibility();
             
+            // Raycaster для кликов по маркерам
             const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
             const clickHandler = (event) => {
@@ -714,6 +721,7 @@
             };
             renderer.domElement.addEventListener('click', clickHandler);
             
+            // Установка вида камеры
             if (resetView || isFirstGlobeActivation || !savedGlobePosition) {
                 setDefaultGlobeView();
                 isFirstGlobeActivation = false;
@@ -905,7 +913,7 @@
         loadMarkersFromExcel();
         init2DEvents();
         
-        // Обновление материала при перезагрузке текстуры
+        // При повторной загрузке текстуры обновляем материал глобуса
         mapImg.onload = () => {
             setCoverAndCenter2D();
             if (globeMode && globeSphere) {
