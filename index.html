@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Интерактивная карта — 2D и 3D Глобус (исправлено)</title>
+    <title>Интерактивная карта — 2D и 3D Глобус Луны</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
     <script type="importmap">
         {
@@ -25,7 +25,7 @@
             height: 100%;
             overflow: hidden;
             background-color: #111;
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         #map-container {
             position: relative;
@@ -61,9 +61,10 @@
             background-repeat: no-repeat;
             cursor: pointer;
             pointer-events: auto;
-            transition: transform 0.1s;
+            transition: transform 0.1s ease;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
         }
-        .marker:hover { transform: scale(1.1); }
+        .marker:hover { transform: scale(1.15); z-index: 100; }
         #globe-container {
             position: absolute;
             top: 0;
@@ -71,7 +72,7 @@
             width: 100%;
             height: 100%;
             z-index: 5;
-            background-color: #000;
+            background-color: #03030f;
             display: none;
         }
         #globe-canvas {
@@ -88,58 +89,24 @@
             gap: 12px;
         }
         #reset-btn, #toggle-globe-btn, #toggle-shade-btn {
-            padding: 10px 20px;
-            font-size: 16px;
+            padding: 8px 18px;
+            font-size: 14px;
+            font-weight: 500;
             border: none;
-            background-color: rgba(255,255,255,0.9);
-            border-radius: 6px;
+            background-color: rgba(0,0,0,0.75);
+            backdrop-filter: blur(8px);
+            color: white;
+            border-radius: 40px;
             cursor: pointer;
-            transition: background 0.2s;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            color: black;
+            transition: all 0.2s;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            letter-spacing: 0.5px;
         }
-        #reset-btn:hover, #toggle-globe-btn:hover, #toggle-shade-btn:hover { background-color: white; }
+        #reset-btn:hover, #toggle-globe-btn:hover, #toggle-shade-btn:hover { 
+            background-color: rgba(0,0,0,0.9);
+            transform: scale(1.02);
+        }
         #toggle-shade-btn { display: none; }
-        #sidebar {
-            position: fixed;
-            top: 0;
-            right: 0;
-            width: 600px;
-            max-width: 90vw;
-            height: 100%;
-            background: white;
-            box-shadow: -2px 0 15px rgba(0,0,0,0.3);
-            z-index: 30;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            transform: translateX(100%);
-            transition: transform 0.25s ease;
-            overflow-y: auto;
-        }
-        #sidebar.open { transform: translateX(0); }
-        .close-btn {
-            align-self: flex-end;
-            font-size: 28px;
-            background: none;
-            border: none;
-            cursor: pointer;
-            margin-bottom: 10px;
-        }
-        #sidebar-title { margin-bottom: 15px; font-size: 1.5rem; }
-        .sidebar-image {
-            width: 100%;
-            height: auto;
-            display: block;
-            margin: 15px 0;
-            border-radius: 6px;
-        }
-        .sidebar-text {
-            background-color: #f9f9f9;
-            padding: 12px;
-            border-left: 4px solid #007bff;
-            line-height: 1.4;
-        }
         .filter-menu-container {
             position: absolute;
             top: 20px;
@@ -149,69 +116,135 @@
         .filter-icon {
             width: 48px;
             height: 48px;
-            background-color: rgba(255,255,255,0.9);
+            background-color: rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            transition: transform 0.2s ease, background-color 0.2s;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
         }
-        .filter-icon:hover { transform: scale(1.1); background-color: white; }
-        .filter-icon svg { width: 24px; height: 24px; }
+        .filter-icon:hover { transform: scale(1.08); background-color: black; }
+        .filter-icon svg { width: 26px; height: 26px; fill: white; }
         .filter-panel {
             position: absolute;
             top: 60px;
             left: 0;
-            background: rgba(255,255,255,0.95);
-            border-radius: 12px;
-            padding: 12px 20px;
-            min-width: 200px;
+            background: rgba(20,20,30,0.95);
+            backdrop-filter: blur(12px);
+            border-radius: 20px;
+            padding: 12px 16px;
+            min-width: 220px;
             display: none;
             flex-direction: column;
             gap: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            border: 1px solid rgba(0,0,0,0.1);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.2);
             z-index: 26;
         }
         .filter-panel.open { display: flex; }
         .filter-option {
             display: flex;
             align-items: center;
-            gap: 10px;
-            color: black;
+            gap: 12px;
+            color: white;
             font-size: 14px;
             cursor: pointer;
-            padding: 5px 0;
-            min-width: 160px;
+            padding: 6px 8px;
+            border-radius: 12px;
+            transition: background 0.1s;
         }
+        .filter-option:hover { background: rgba(255,255,255,0.1); }
         .filter-option input {
             width: 18px;
             height: 18px;
             cursor: pointer;
-            flex-shrink: 0;
+            accent-color: #3b82f6;
         }
-        .filter-option label {
+        .filter-option label { cursor: pointer; font-weight: 400; }
+        #sidebar {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 520px;
+            max-width: 90vw;
+            height: 100%;
+            background: rgba(20,20,30,0.96);
+            backdrop-filter: blur(20px);
+            box-shadow: -5px 0 25px rgba(0,0,0,0.5);
+            z-index: 30;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(100%);
+            transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+            overflow-y: auto;
+            border-left: 1px solid rgba(255,255,255,0.2);
+            color: #f0f0f0;
+        }
+        #sidebar.open { transform: translateX(0); }
+        .close-btn {
+            align-self: flex-end;
+            font-size: 32px;
+            background: none;
+            border: none;
             cursor: pointer;
-            white-space: nowrap;
+            margin-bottom: 15px;
+            color: white;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+        .close-btn:hover { opacity: 1; }
+        #sidebar-title { 
+            margin-bottom: 20px; 
+            font-size: 1.8rem; 
+            font-weight: 600;
+            border-left: 4px solid #3b82f6;
+            padding-left: 16px;
+        }
+        .sidebar-image {
+            width: 100%;
+            max-height: 260px;
+            object-fit: contain;
+            display: block;
+            margin: 15px 0;
+            border-radius: 16px;
+            background: #0a0a14;
+            padding: 8px;
+            border: 1px solid #333;
+        }
+        .sidebar-text {
+            background: rgba(0,0,0,0.5);
+            padding: 18px;
+            border-radius: 16px;
+            line-height: 1.5;
+            font-size: 0.95rem;
+            color: #e0e0e0;
+            margin-top: 10px;
         }
         .error-message {
             position: fixed;
             bottom: 20px;
             left: 20px;
-            background: rgba(255,0,0,0.8);
+            background: #dc2626;
             color: white;
-            padding: 8px 15px;
-            border-radius: 4px;
+            padding: 10px 18px;
+            border-radius: 40px;
             z-index: 40;
             font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
         }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1e1e2a; }
+        ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 6px; }
     </style>
 </head>
 <body>
     <div id="map-container">
-        <img id="map-image" src="map.jpg" alt="Карта">
+        <img id="map-image" src="map.jpg" alt="Карта Луны">
         <div id="markers-container"></div>
     </div>
     <div id="globe-container">
@@ -219,15 +252,15 @@
     </div>
     <div class="top-buttons">
         <button id="reset-btn">Сбросить вид</button>
-        <button id="toggle-shade-btn">Затенение</button>
-        <button id="toggle-globe-btn">Глобус</button>
+        <button id="toggle-shade-btn">🌓 Затенение</button>
+        <button id="toggle-globe-btn">🌍 Глобус</button>
     </div>
     <div class="filter-menu-container">
         <div class="filter-icon" id="filter-icon">
-            <svg class="icon-dots" viewBox="0 0 24 24" fill="black" xmlns="http://www.w3.org/2000/svg">
+            <svg class="icon-dots" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
             </svg>
-            <svg class="icon-close" style="display: none;" viewBox="0 0 24 24" fill="black" xmlns="http://www.w3.org/2000/svg">
+            <svg class="icon-close" style="display: none;" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
                 <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
             </svg>
         </div>
@@ -244,14 +277,16 @@
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        // ========== ОБЩИЕ ДАННЫЕ ==========
+        // ---------- ГЛОБАЛЬНЫЕ ДАННЫЕ ----------
         let markersData = [];       
-        let markerElements2D = [];    
+        let markerElements2D = [];   
         let categoriesSet = new Set();
         let activeCategories = new Set();
         let dataLoaded = false;
-
-        // DOM элементы
+        let mapImageReady = false;
+        let mapImageNaturalSize = { width: 0, height: 0 };
+        
+        // DOM
         const container = document.getElementById('map-container');
         const mapImg = document.getElementById('map-image');
         const resetBtn = document.getElementById('reset-btn');
@@ -267,14 +302,14 @@
         const filterIcon = document.getElementById('filter-icon');
         const filterPanel = document.getElementById('filter-panel');
         const globeCanvas = document.getElementById('globe-canvas');
-
+        
         // 2D переменные
         let scale = 1, minScale = 1, maxScale = 5;
         let translateX = 0, translateY = 0;
         let isDragging = false;
         let startX = 0, startY = 0;
         let lastTranslateX = 0, lastTranslateY = 0;
-
+        
         // 3D переменные
         let globeMode = false;
         let scene, camera, renderer, controls, globeSphere;
@@ -282,53 +317,119 @@
         let markerIndices = [];
         let animationId = null;
         let shadeEnabled = true;
-        let planeNormal, planeConstant;
+        let planeNormalGlobal = null;
+        let planeConstantGlobal = null;
         let savedGlobePosition = null, savedGlobeTarget = null;
         let isFirstGlobeActivation = true;
-
-        // ========== 2D ФУНКЦИИ (без изменений, рабочие) ==========
-        function updateMarkers2D() {
-            markerElements2D.forEach((marker, i) => {
-                if (i >= markersData.length) return;
-                const data = markersData[i];
-                const x = data.imgX * scale + translateX;
-                const y = data.imgY * scale + translateY;
-                marker.style.left = x + 'px';
-                marker.style.top = y + 'px';
+        
+        // ---------- ДОЖИДАНИЕ ЗАГРУЗКИ КАРТЫ ----------
+        function waitForMapImage() {
+            return new Promise((resolve) => {
+                if (mapImg.complete && mapImg.naturalWidth > 0) {
+                    mapImageNaturalSize = { width: mapImg.naturalWidth, height: mapImg.naturalHeight };
+                    mapImageReady = true;
+                    resolve();
+                } else {
+                    mapImg.onload = () => {
+                        mapImageNaturalSize = { width: mapImg.naturalWidth, height: mapImg.naturalHeight };
+                        mapImageReady = true;
+                        resolve();
+                    };
+                    if (mapImg.src === "") mapImg.src = "map.jpg";
+                }
             });
         }
-
-        function updateTransform2D() {
-            mapImg.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
-            updateMarkers2D();
+        
+        // ---------- ВЫЧИСЛЕНИЕ ПЛОСКОСТИ ЗАТЕНЕНИЯ (в локальных координатах) ----------
+        function computeShadePlane() {
+            if (!mapImageReady) return { normal: new THREE.Vector3(0, 1, 0), constant: -1.8 };
+            const R = 1.8;
+            const imgW = mapImageNaturalSize.width;
+            const imgH = mapImageNaturalSize.height;
+            // Северный полюс (верх)
+            const A = new THREE.Vector3(0, R, 0);
+            // Южный полюс (низ)
+            const B = new THREE.Vector3(0, -R, 0);
+            // Контрольная точка: Море Восточное (488,617) должно быть в затенённой полусфере
+            const u = 488 / imgW;
+            const v = 617 / imgH;
+            const theta = (u * 2 * Math.PI) - Math.PI;
+            const phi = (Math.PI / 2) - (v * Math.PI);
+            const C = new THREE.Vector3(
+                R * Math.cos(phi) * Math.cos(theta),
+                R * Math.sin(phi),
+                R * Math.cos(phi) * Math.sin(theta)
+            );
+            const AB = new THREE.Vector3().subVectors(B, A);
+            const AC = new THREE.Vector3().subVectors(C, A);
+            let normal = new THREE.Vector3().crossVectors(AB, AC).normalize();
+            let d = -normal.dot(A);
+            // Проверка: Море Восточное должно быть side < 0 (затенение)
+            const testSide = normal.dot(C) + d;
+            if (testSide > 0) {
+                normal.negate();
+                d = -normal.dot(A);
+            }
+            return { normal, constant: d };
         }
-
-        function setCoverAndCenter2D() {
-            const rect = container.getBoundingClientRect();
-            const imgW = mapImg.naturalWidth;
-            const imgH = mapImg.naturalHeight;
-            if (!imgW || !imgH) return;
-            const scaleX = rect.width / imgW;
-            const scaleY = rect.height / imgH;
-            minScale = Math.max(scaleX, scaleY);
-            scale = minScale;
-            translateX = (rect.width - imgW * scale) / 2;
-            translateY = (rect.height - imgH * scale) / 2;
-            updateTransform2D();
+        
+        // ---------- ШЕЙДЕРНЫЙ МАТЕРИАЛ ДЛЯ ГЛОБУСА (затенение по плоскости) ----------
+        function createGlobeMaterial(texture) {
+            const { normal, constant } = computeShadePlane();
+            planeNormalGlobal = normal.clone();
+            planeConstantGlobal = constant;
+            
+            const vertexShader = `
+                varying vec3 vLocalNormal;
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    vLocalNormal = normalize(normal);
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    gl_PointSize = 1.0;
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `;
+            const fragmentShader = `
+                uniform sampler2D map;
+                uniform vec3 u_planeNormal;
+                uniform float u_planeConstant;
+                uniform bool u_shadeEnabled;
+                varying vec2 vUv;
+                varying vec3 vLocalNormal;
+                void main() {
+                    vec4 texColor = texture2D(map, vUv);
+                    if (u_shadeEnabled) {
+                        float side = dot(vLocalNormal, u_planeNormal) + u_planeConstant;
+                        if (side < 0.0) {
+                            texColor.rgb *= 0.35;
+                        }
+                    }
+                    gl_FragColor = texColor;
+                }
+            `;
+            const uniforms = {
+                map: { value: texture },
+                u_planeNormal: { value: planeNormalGlobal },
+                u_planeConstant: { value: planeConstantGlobal },
+                u_shadeEnabled: { value: shadeEnabled }
+            };
+            return new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                vertexShader: vertexShader,
+                fragmentShader: fragmentShader,
+                lights: false,
+                side: THREE.DoubleSide
+            });
         }
-
-        function clampTranslate2D() {
-            const rect = container.getBoundingClientRect();
-            const imgW = mapImg.naturalWidth * scale;
-            const imgH = mapImg.naturalHeight * scale;
-            const minX = rect.width - imgW;
-            const maxX = 0;
-            const minY = rect.height - imgH;
-            const maxY = 0;
-            translateX = Math.min(maxX, Math.max(minX, translateX));
-            translateY = Math.min(maxY, Math.max(minY, translateY));
+        
+        function updateShadeUniforms() {
+            if (globeSphere && globeSphere.material) {
+                globeSphere.material.uniforms.u_shadeEnabled.value = shadeEnabled;
+            }
         }
-
+        
+        // ---------- ФИЛЬТРАЦИЯ 2D/3D ----------
         function applyFilter() {
             markerElements2D.forEach((marker, idx) => {
                 const category = markersData[idx].category;
@@ -336,15 +437,32 @@
             });
             if (globeMode && markers3D.length) update3DMarkersVisibility();
         }
-
+        
         function update3DMarkersVisibility() {
             for (let i = 0; i < markers3D.length; i++) {
                 const idx = markerIndices[i];
                 const category = markersData[idx].category;
-                markers3D[i].visible = activeCategories.has(category);
+                markers3D[i].userData.categoryVisible = activeCategories.has(category);
+            }
+            updateCombinedVisibility();
+        }
+        
+        function updateCombinedVisibility() {
+            if (!camera || !globeMode) return;
+            const cameraPos = camera.position.clone().normalize();
+            for (let i = 0; i < markers3D.length; i++) {
+                const m = markers3D[i];
+                const catVisible = m.userData.categoryVisible;
+                if (!catVisible) {
+                    m.visible = false;
+                    continue;
+                }
+                const markerPos = m.position.clone().normalize();
+                const dot = markerPos.dot(cameraPos);
+                m.visible = (dot > 0);
             }
         }
-
+        
         function buildFilterMenu() {
             filterPanel.innerHTML = '';
             const categories = Array.from(categoriesSet).sort();
@@ -367,7 +485,7 @@
                 filterPanel.appendChild(div);
             });
         }
-
+        
         function openSidebar(index) {
             if (!markersData[index]) return;
             const data = markersData[index];
@@ -382,8 +500,51 @@
             }
             sidebar.classList.add('open');
         }
-
-        // ========== ЗАГРУЗКА EXCEL ==========
+        
+        // ---------- 2D ФУНКЦИИ ----------
+        function updateMarkers2D() {
+            markerElements2D.forEach((marker, i) => {
+                if (i >= markersData.length) return;
+                const data = markersData[i];
+                const x = data.imgX * scale + translateX;
+                const y = data.imgY * scale + translateY;
+                marker.style.left = x + 'px';
+                marker.style.top = y + 'px';
+            });
+        }
+        
+        function updateTransform2D() {
+            mapImg.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+            updateMarkers2D();
+        }
+        
+        function setCoverAndCenter2D() {
+            if (!mapImageReady) return;
+            const rect = container.getBoundingClientRect();
+            const imgW = mapImageNaturalSize.width;
+            const imgH = mapImageNaturalSize.height;
+            const scaleX = rect.width / imgW;
+            const scaleY = rect.height / imgH;
+            minScale = Math.max(scaleX, scaleY);
+            scale = minScale;
+            translateX = (rect.width - imgW * scale) / 2;
+            translateY = (rect.height - imgH * scale) / 2;
+            updateTransform2D();
+        }
+        
+        function clampTranslate2D() {
+            const rect = container.getBoundingClientRect();
+            const imgW = mapImageNaturalSize.width * scale;
+            const imgH = mapImageNaturalSize.height * scale;
+            const minX = rect.width - imgW;
+            const maxX = 0;
+            const minY = rect.height - imgH;
+            const maxY = 0;
+            translateX = Math.min(maxX, Math.max(minX, translateX));
+            translateY = Math.min(maxY, Math.max(minY, translateY));
+        }
+        
+        // ---------- ЗАГРУЗКА EXCEL ----------
         async function loadMarkersFromExcel() {
             try {
                 const response = await fetch('data.xlsx');
@@ -393,13 +554,13 @@
                 const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                 const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
                 if (!rows || rows.length < 2) throw new Error('Таблица пуста');
-
+                
                 markersContainer.innerHTML = '';
                 markersData = [];
                 markerElements2D = [];
                 categoriesSet.clear();
                 activeCategories.clear();
-
+                
                 for (let i = 1; i < rows.length; i++) {
                     const row = rows[i];
                     const name = row[0] ? row[0].toString().trim() : '';
@@ -433,12 +594,11 @@
                         marker.style.backgroundImage = `url('${markerData.icon}')`;
                         marker.style.backgroundColor = 'transparent';
                         marker.style.border = 'none';
-                        marker.style.boxShadow = 'none';
                     } else {
-                        marker.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
-                        marker.style.border = '3px solid white';
+                        marker.style.backgroundColor = '#ff3366';
+                        marker.style.border = '2px solid white';
                         marker.style.borderRadius = '50%';
-                        marker.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
+                        marker.style.boxShadow = '0 0 12px rgba(255,51,102,0.8)';
                     }
                     marker.dataset.index = markersData.length - 1;
                     marker.addEventListener('click', (e) => {
@@ -448,164 +608,60 @@
                     markersContainer.appendChild(marker);
                     markerElements2D.push(marker);
                 }
-                if (markersData.length === 0) console.warn('Нет маркеров');
                 buildFilterMenu();
                 applyFilter();
                 updateMarkers2D();
                 dataLoaded = true;
-                console.log('Загружено маркеров:', markersData.length);
             } catch (err) {
                 console.error('Ошибка загрузки Excel:', err);
                 const errorDiv = document.createElement('div');
                 errorDiv.className = 'error-message';
-                errorDiv.textContent = 'Не удалось загрузить data.xlsx';
+                errorDiv.textContent = '❌ Не удалось загрузить data.xlsx';
                 document.body.appendChild(errorDiv);
                 setTimeout(() => errorDiv.remove(), 5000);
                 dataLoaded = false;
             }
         }
-
-        // ========== ВЫЧИСЛЕНИЕ ПЛОСКОСТИ ДЛЯ ЗАТЕНЕНИЯ ==========
-        function computeShadePlane() {
-            const R = 1.8;
-            const A = new THREE.Vector3(0, R, 0);   // северный полюс
-            const B = new THREE.Vector3(0, -R, 0);  // южный полюс
-            const imgW = mapImg.naturalWidth;
-            const imgH = mapImg.naturalHeight;
-            const u = 516 / imgW;
-            const v = 1 - (570 / imgH);
-            const theta = (u * 2 * Math.PI) - Math.PI;
-            const phi = (Math.PI / 2) - (v * Math.PI);
-            const C = new THREE.Vector3(
-                R * Math.cos(phi) * Math.cos(theta),
-                R * Math.sin(phi),
-                R * Math.cos(phi) * Math.sin(theta)
-            );
-            const AB = new THREE.Vector3().subVectors(B, A);
-            const AC = new THREE.Vector3().subVectors(C, A);
-            let normal = new THREE.Vector3().crossVectors(AB, AC).normalize();
-            let d = -normal.dot(A);
-            // Проверка на точке "Море Восточное" (488,617)
-            const uTest = 488 / imgW;
-            const vTest = 1 - (617 / imgH);
-            const thetaTest = (uTest * 2 * Math.PI) - Math.PI;
-            const phiTest = (Math.PI / 2) - (vTest * Math.PI);
-            const testPoint = new THREE.Vector3(
-                R * Math.cos(phiTest) * Math.cos(thetaTest),
-                R * Math.sin(phiTest),
-                R * Math.cos(phiTest) * Math.sin(thetaTest)
-            );
-            let testSide = normal.dot(testPoint) + d;
-            if (testSide > 0) {
-                normal.negate();
-                d = -normal.dot(A);
-            }
-            return { normal, constant: d };
-        }
-
-        // ========== ШЕЙДЕРНЫЙ МАТЕРИАЛ (затенение на сфере) ==========
-        function createGlobeMaterial(texture) {
-            const { normal, constant } = computeShadePlane();
-            planeNormal = normal.clone();
-            planeConstant = constant;
-            const vertexShader = `
-                varying vec3 vLocalNormal;
-                varying vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    vLocalNormal = normalize(normal);
-                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                    gl_PointSize = 1.0;
-                    gl_Position = projectionMatrix * mvPosition;
-                }
-            `;
-            const fragmentShader = `
-                uniform sampler2D map;
-                uniform vec3 u_planeNormal;
-                uniform float u_planeConstant;
-                uniform bool u_shadeEnabled;
-                varying vec2 vUv;
-                varying vec3 vLocalNormal;
-                void main() {
-                    vec4 texColor = texture2D(map, vUv);
-                    if (u_shadeEnabled) {
-                        float side = dot(vLocalNormal, u_planeNormal) + u_planeConstant;
-                        if (side < 0.0) {
-                            texColor.rgb *= 0.35;
-                        }
-                    }
-                    gl_FragColor = texColor;
-                }
-            `;
-            const uniforms = {
-                map: { value: texture },
-                u_planeNormal: { value: planeNormal },
-                u_planeConstant: { value: planeConstant },
-                u_shadeEnabled: { value: shadeEnabled }
-            };
-            return new THREE.ShaderMaterial({
-                uniforms: uniforms,
-                vertexShader: vertexShader,
-                fragmentShader: fragmentShader,
-                lights: false,
-                side: THREE.DoubleSide
-            });
-        }
         
-        function updateShadeUniforms() {
-            if (globeSphere && globeSphere.material) {
-                globeSphere.material.uniforms.u_shadeEnabled.value = shadeEnabled;
-            }
-        }
-
-        // ========== 3D ГЛОБУС (исправленные маркеры) ==========
+        // ---------- 3D ГЛОБУС (ИСПРАВЛЕННЫЙ) ----------
         function destroyGlobe() {
-            if (animationId) {
-                cancelAnimationFrame(animationId);
-                animationId = null;
-            }
-            if (renderer) {
-                renderer.dispose();
-                renderer = null;
-            }
-            if (scene) {
-                scene.clear();
-                scene = null;
-            }
+            if (animationId) { cancelAnimationFrame(animationId); animationId = null; }
+            if (renderer) { renderer.dispose(); renderer = null; }
+            if (scene) { scene.clear(); scene = null; }
             camera = null;
             controls = null;
             globeSphere = null;
             markers3D = [];
             markerIndices = [];
         }
-
+        
         function setDefaultGlobeView() {
-            if (!controls || !camera) return;
-            const viewDir = planeNormal.clone().normalize();
+            if (!controls || !camera || !planeNormalGlobal) return;
+            // Камера смотрит на освещённую полусферу (противоположно нормали плоскости затенения)
+            const viewDir = planeNormalGlobal.clone().negate().normalize();
             camera.position.copy(viewDir.multiplyScalar(4.5));
             controls.target.set(0, 0, 0);
             controls.update();
         }
-
+        
         function resetGlobeView() {
             if (!globeMode || !controls || !camera) return;
             setDefaultGlobeView();
             savedGlobePosition = camera.position.clone();
             savedGlobeTarget = controls.target.clone();
         }
-
+        
         async function initGlobe(resetView = true) {
-            if (!dataLoaded || markersData.length === 0) {
-                console.warn("Данные не загружены");
+            if (!dataLoaded || markersData.length === 0 || !mapImageReady) {
+                console.warn("Данные или карта не готовы");
                 return false;
             }
             destroyGlobe();
             
             const width = globeContainer.clientWidth;
             const height = globeContainer.clientHeight;
-            
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x050b1a);
+            scene.background = new THREE.Color(0x03030f);
             camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
             renderer = new THREE.WebGLRenderer({ canvas: globeCanvas, alpha: false });
             renderer.setSize(width, height);
@@ -613,7 +669,7 @@
             
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
+            controls.dampingFactor = 0.06;
             controls.rotateSpeed = 1.0;
             controls.zoomSpeed = 1.2;
             controls.enableZoom = true;
@@ -630,71 +686,59 @@
             globeSphere = new THREE.Mesh(geometry, material);
             scene.add(globeSphere);
             
-            // СОЗДАНИЕ МАРКЕРОВ (исправленное преобразование)
+            // Маркеры на сфере (исправленное преобразование координат)
+            const sphereRadius = 1.81;
+            const imgW = mapImageNaturalSize.width;
+            const imgH = mapImageNaturalSize.height;
             markers3D = [];
             markerIndices = [];
-            const sphereRadius = 1.82; // чуть больше сферы, чтобы не пересекаться
-            const imgW = mapImg.naturalWidth;
-            const imgH = mapImg.naturalHeight;
-            
-            console.log(`Размер карты: ${imgW}x${imgH}`);
             
             for (let i = 0; i < markersData.length; i++) {
                 const data = markersData[i];
-                // Преобразование (x,y) -> UV, где Y инвертирован
-                const u = data.imgX / imgW;
-                const v = 1 - (data.imgY / imgH);
+                let u = data.imgX / imgW;
+                let v = data.imgY / imgH;
                 const theta = (u * 2 * Math.PI) - Math.PI;
                 const phi = (Math.PI / 2) - (v * Math.PI);
                 const x = sphereRadius * Math.cos(phi) * Math.cos(theta);
                 const y = sphereRadius * Math.sin(phi);
                 const z = sphereRadius * Math.cos(phi) * Math.sin(theta);
                 
-                // Создаём спрайт с иконкой или цветным кругом
-                let canvas = document.createElement('canvas');
-                canvas.width = 64;
-                canvas.height = 64;
-                let ctx = canvas.getContext('2d');
-                
+                let markerObj;
                 if (data.icon && data.icon.trim() !== '') {
-                    // Загружаем иконку, но для простоты используем цветной круг с текстом
-                    ctx.fillStyle = '#ff3366';
-                    ctx.beginPath();
-                    ctx.arc(32, 32, 28, 0, 2 * Math.PI);
-                    ctx.fill();
-                    ctx.strokeStyle = 'white';
-                    ctx.lineWidth = 3;
-                    ctx.stroke();
-                    ctx.fillStyle = 'white';
-                    ctx.font = 'bold 24px Arial';
-                    ctx.fillText('●', 24, 46);
+                    const imgTexture = textureLoader.load(data.icon);
+                    const spriteMat = new THREE.SpriteMaterial({ map: imgTexture, depthTest: true, depthWrite: true });
+                    markerObj = new THREE.Sprite(spriteMat);
+                    markerObj.scale.set(0.24, 0.24, 0.24);
                 } else {
-                    ctx.fillStyle = '#ff5555';
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 80;
+                    canvas.height = 80;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ff4466';
                     ctx.beginPath();
-                    ctx.arc(32, 32, 28, 0, 2 * Math.PI);
+                    ctx.arc(40, 40, 34, 0, 2 * Math.PI);
                     ctx.fill();
                     ctx.strokeStyle = 'white';
                     ctx.lineWidth = 3;
                     ctx.stroke();
                     ctx.fillStyle = 'white';
-                    ctx.font = 'bold 30px Arial';
-                    ctx.fillText('📍', 20, 48);
+                    ctx.font = 'bold 42px "Segoe UI"';
+                    ctx.fillText('●', 28, 58);
+                    const texture = new THREE.CanvasTexture(canvas);
+                    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: true, depthWrite: true });
+                    markerObj = new THREE.Sprite(spriteMat);
+                    markerObj.scale.set(0.26, 0.26, 0.26);
                 }
-                const texture = new THREE.CanvasTexture(canvas);
-                const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false });
-                const sprite = new THREE.Sprite(spriteMaterial);
-                sprite.scale.set(0.28, 0.28, 0.28);
-                sprite.position.set(x, y, z);
-                sprite.userData = { index: i, name: data.name };
-                scene.add(sprite);
-                markers3D.push(sprite);
+                markerObj.position.set(x, y, z);
+                markerObj.userData = { index: i, name: data.name, categoryVisible: true };
+                scene.add(markerObj);
+                markers3D.push(markerObj);
                 markerIndices.push(i);
             }
             
-            console.log(`Создано 3D маркеров: ${markers3D.length}`);
-            update3DMarkersVisibility(); // применяем фильтр категорий
+            update3DMarkersVisibility();
             
-            // Raycaster для кликов
+            // Raycaster для кликов по маркерам (интерактивность)
             const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
             const clickHandler = (event) => {
@@ -710,7 +754,6 @@
             };
             renderer.domElement.addEventListener('click', clickHandler);
             
-            // Установка вида камеры
             if (resetView || isFirstGlobeActivation || !savedGlobePosition) {
                 setDefaultGlobeView();
                 isFirstGlobeActivation = false;
@@ -726,6 +769,7 @@
                 if (!globeMode) return;
                 animationId = requestAnimationFrame(animate);
                 controls.update();
+                updateCombinedVisibility();
                 renderer.render(scene, camera);
             }
             animate();
@@ -733,8 +777,8 @@
         }
         
         async function toggleGlobeMode() {
-            if (!dataLoaded) {
-                alert("Данные ещё загружаются...");
+            if (!dataLoaded || !mapImageReady) {
+                alert("Подождите, данные и карта загружаются...");
                 return;
             }
             if (!globeMode) {
@@ -743,7 +787,7 @@
                     savedGlobeTarget = controls.target.clone();
                 }
                 globeMode = true;
-                toggleGlobeBtn.textContent = "Карта";
+                toggleGlobeBtn.textContent = "🗺️ Карта";
                 toggleShadeBtn.style.display = "inline-block";
                 container.style.display = "none";
                 globeContainer.style.display = "block";
@@ -751,17 +795,17 @@
                 resetBtn.onclick = () => { if (globeMode) resetGlobeView(); else setCoverAndCenter2D(); };
                 toggleShadeBtn.onclick = () => {
                     shadeEnabled = !shadeEnabled;
-                    toggleShadeBtn.textContent = shadeEnabled ? "Затенение" : "Затенение выкл";
+                    toggleShadeBtn.innerHTML = shadeEnabled ? "🌓 Затенение" : "☀️ Затенение выкл";
                     updateShadeUniforms();
                 };
-                toggleShadeBtn.textContent = shadeEnabled ? "Затенение" : "Затенение выкл";
+                toggleShadeBtn.innerHTML = shadeEnabled ? "🌓 Затенение" : "☀️ Затенение выкл";
             } else {
                 if (controls && camera) {
                     savedGlobePosition = camera.position.clone();
                     savedGlobeTarget = controls.target.clone();
                 }
                 globeMode = false;
-                toggleGlobeBtn.textContent = "Глобус";
+                toggleGlobeBtn.textContent = "🌍 Глобус";
                 toggleShadeBtn.style.display = "none";
                 globeContainer.style.display = "none";
                 container.style.display = "block";
@@ -772,8 +816,8 @@
                 resetBtn.onclick = setCoverAndCenter2D;
             }
         }
-
-        // ========== 2D СОБЫТИЯ (без изменений) ==========
+        
+        // ---------- 2D СОБЫТИЯ ----------
         function init2DEvents() {
             container.addEventListener('wheel', (e) => {
                 e.preventDefault();
@@ -804,7 +848,6 @@
             });
             window.addEventListener('mousemove', (e) => {
                 if (!isDragging) return;
-                e.preventDefault();
                 const dx = e.clientX - startX;
                 const dy = e.clientY - startY;
                 translateX = lastTranslateX + dx;
@@ -843,7 +886,7 @@
             });
             resetBtn.onclick = setCoverAndCenter2D;
             window.addEventListener('resize', () => {
-                if (!globeMode && mapImg.complete) setCoverAndCenter2D();
+                if (!globeMode && mapImageReady) setCoverAndCenter2D();
                 else if (globeMode && renderer && camera) {
                     const width = globeContainer.clientWidth;
                     const height = globeContainer.clientHeight;
@@ -853,63 +896,52 @@
                 }
             });
         }
-
-        // ========== ИНТЕРАКЦИИ ==========
-        closeSidebar.addEventListener('click', () => sidebar.classList.remove('open'));
-        document.addEventListener('click', (e) => {
-            if (!sidebar.contains(e.target) && !e.target.classList?.contains('marker') && !e.target.classList?.contains('sprite')) {
-                sidebar.classList.remove('open');
-            }
-        });
         
-        let filterMenuOpen = false;
-        filterIcon.addEventListener('click', (e) => {
-            e.stopPropagation();
-            filterMenuOpen = !filterMenuOpen;
-            const iconDots = document.querySelector('.icon-dots');
-            const iconClose = document.querySelector('.icon-close');
-            if (filterMenuOpen) {
-                filterPanel.classList.add('open');
-                iconDots.style.display = 'none';
-                iconClose.style.display = 'block';
-            } else {
-                filterPanel.classList.remove('open');
-                iconDots.style.display = 'block';
-                iconClose.style.display = 'none';
-            }
-        });
-        document.addEventListener('click', (e) => {
-            if (!filterIcon.contains(e.target) && !filterPanel.contains(e.target) && filterMenuOpen) {
-                filterMenuOpen = false;
-                filterPanel.classList.remove('open');
+        // ---------- ЗАПУСК ----------
+        (async () => {
+            await waitForMapImage();
+            await loadMarkersFromExcel();
+            setCoverAndCenter2D();
+            init2DEvents();
+            
+            closeSidebar.addEventListener('click', () => sidebar.classList.remove('open'));
+            document.addEventListener('click', (e) => {
+                if (!sidebar.contains(e.target) && !e.target.classList?.contains('marker') && !e.target.classList?.contains('sprite')) {
+                    sidebar.classList.remove('open');
+                }
+            });
+            
+            let filterMenuOpen = false;
+            filterIcon.addEventListener('click', (e) => {
+                e.stopPropagation();
+                filterMenuOpen = !filterMenuOpen;
                 const iconDots = document.querySelector('.icon-dots');
                 const iconClose = document.querySelector('.icon-close');
-                if (iconDots && iconClose) {
+                if (filterMenuOpen) {
+                    filterPanel.classList.add('open');
+                    iconDots.style.display = 'none';
+                    iconClose.style.display = 'block';
+                } else {
+                    filterPanel.classList.remove('open');
                     iconDots.style.display = 'block';
                     iconClose.style.display = 'none';
                 }
-            }
-        });
-        
-        toggleGlobeBtn.addEventListener('click', toggleGlobeMode);
-        toggleShadeBtn.addEventListener('click', () => {});
-        toggleShadeBtn.style.display = "none";
-        
-        // Запуск
-        if (mapImg.complete) setCoverAndCenter2D();
-        else mapImg.onload = setCoverAndCenter2D;
-        loadMarkersFromExcel();
-        init2DEvents();
-        
-        mapImg.onload = () => {
-            setCoverAndCenter2D();
-            if (globeMode && globeSphere) {
-                const newMat = createGlobeMaterial(globeSphere.material.uniforms.map.value);
-                globeSphere.material.dispose();
-                globeSphere.material = newMat;
-                updateShadeUniforms();
-            }
-        };
+            });
+            document.addEventListener('click', (e) => {
+                if (!filterIcon.contains(e.target) && !filterPanel.contains(e.target) && filterMenuOpen) {
+                    filterMenuOpen = false;
+                    filterPanel.classList.remove('open');
+                    const iconDots = document.querySelector('.icon-dots');
+                    const iconClose = document.querySelector('.icon-close');
+                    if (iconDots && iconClose) {
+                        iconDots.style.display = 'block';
+                        iconClose.style.display = 'none';
+                    }
+                }
+            });
+            
+            toggleGlobeBtn.addEventListener('click', toggleGlobeMode);
+        })();
     </script>
 </body>
 </html>
