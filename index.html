@@ -493,7 +493,7 @@
             const imgW = mapImg.naturalWidth;
             const imgH = mapImg.naturalHeight;
             const u = 516 / imgW;
-            const v = 570 / imgH;
+            const v = 1 - (570 / imgH); // инвертируем Y для текстуры
             const theta = (u * 2 * Math.PI) - Math.PI;
             const phi = (Math.PI / 2) - (v * Math.PI);
             const C = new THREE.Vector3(
@@ -508,7 +508,7 @@
             
             // Проверяем, что точка "Море Восточное" (488,617) находится в затенённой полусфере (side < 0)
             const uTest = 488 / imgW;
-            const vTest = 617 / imgH;
+            const vTest = 1 - (617 / imgH);
             const thetaTest = (uTest * 2 * Math.PI) - Math.PI;
             const phiTest = (Math.PI / 2) - (vTest * Math.PI);
             const testPoint = new THREE.Vector3(
@@ -652,17 +652,18 @@
             globeSphere = new THREE.Mesh(geometry, material);
             scene.add(globeSphere);
             
-            // Создаём маркеры как спрайты с depthTest = false, чтобы они всегда были поверх сферы
+            // Создаём маркеры с корректным преобразованием координат (инверсия Y)
             markers3D = [];
             markerIndices = [];
-            const sphereRadius = 1.81;
+            const sphereRadius = 1.81; // чуть больше сферы, чтобы быть над поверхностью
             const imgW = mapImg.naturalWidth;
             const imgH = mapImg.naturalHeight;
             
             for (let i = 0; i < markersData.length; i++) {
                 const data = markersData[i];
-                let u = data.imgX / imgW;
-                let v = data.imgY / imgH;
+                // Преобразование плоских координат в UV: u = x / ширина, v = 1 - y / высота (инверсия Y)
+                const u = data.imgX / imgW;
+                const v = 1 - (data.imgY / imgH);
                 const theta = (u * 2 * Math.PI) - Math.PI;
                 const phi = (Math.PI / 2) - (v * Math.PI);
                 const x = sphereRadius * Math.cos(phi) * Math.cos(theta);
@@ -703,9 +704,14 @@
             }
             
             console.log('Создано 3D маркеров:', markers3D.length);
+            // Для отладки выведем позиции первых нескольких
+            for (let i = 0; i < Math.min(3, markers3D.length); i++) {
+                console.log(`Маркер ${i} позиция:`, markers3D[i].position);
+            }
+            
             update3DMarkersVisibility();
             
-            // Raycaster для кликов по маркерам (с учётом, что спрайты имеют depthTest false, но raycaster их найдёт)
+            // Raycaster для кликов по маркерам
             const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
             const clickHandler = (event) => {
