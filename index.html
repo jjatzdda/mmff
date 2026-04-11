@@ -674,6 +674,23 @@
                     const imgTexture = textureLoader.load(data.icon);
                     const spriteMat = new THREE.SpriteMaterial({ map: imgTexture, depthTest: false, depthWrite: false });
                     markerObj = new THREE.Sprite(spriteMat);
+const hitGeometry = new THREE.SphereGeometry(2, 8, 8);
+const hitMaterial = new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0
+});
+
+const hitMesh = new THREE.Mesh(hitGeometry, hitMaterial);
+
+// позиция такая же как у маркера
+hitMesh.position.copy(markerObj.position);
+
+// копируем данные
+hitMesh.userData = markerObj.userData;
+
+// добавляем в сцену и массив
+scene.add(hitMesh);
+markers3D.push(hitMesh);
                     markerObj.scale.set(0.22, 0.22, 0.22);
                 } else {
                     const canvas = document.createElement('canvas');
@@ -699,7 +716,6 @@
                 markerObj.position.set(x, y, z);
                 markerObj.userData = { index: i, name: data.name, categoryVisible: true };
                 scene.add(markerObj);
-                markers3D.push(markerObj);
                 markerIndices.push(i);
             }
             
@@ -718,7 +734,15 @@
                 raycaster.setFromCamera(mouse, camera);
                 const intersects = raycaster.intersectObjects(markers3D, true);
                 if (intersects.length > 0) {
-                    const idx = intersects[0].object.userData.index;
+                    let obj = intersects[0].object;
+
+while (obj && obj.userData.index === undefined) {
+    obj = obj.parent;
+}
+
+if (obj && obj.userData.index !== undefined) {
+    openSidebar(obj.userData.index);
+}
                     if (idx !== undefined) openSidebar(idx);
                 }
             };
