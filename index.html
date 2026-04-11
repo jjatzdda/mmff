@@ -693,6 +693,7 @@
                     const texture = new THREE.CanvasTexture(canvas);
                     const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false });
                     markerObj = new THREE.Sprite(spriteMat);
+		    markerObj.layers.enable(0);
                     markerObj.scale.set(0.22, 0.22, 0.22);
                 }
                 markerObj.position.set(x, y, z);
@@ -707,6 +708,7 @@
             
             // Raycaster для кликов по маркерам (с учётом, что спрайты имеют depthTest false, но raycaster их найдёт)
             const raycaster = new THREE.Raycaster();
+	    raycaster.layers.enableAll();
 	    raycaster.params.Sprite.threshold = 0.1;
             const mouse = new THREE.Vector2();
             const clickHandler = (event) => {
