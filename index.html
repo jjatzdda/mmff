@@ -662,14 +662,12 @@
             for (let i = 0; i < markersData.length; i++) {
                 const data = markersData[i];
                 let u = data.imgX / imgW;
-let v = data.imgY / imgH;
-
-const theta = (u * 2 * Math.PI) - Math.PI;
-const phi = (Math.PI / 2) - (v * Math.PI);
-
-const x = sphereRadius * Math.cos(phi) * Math.cos(theta);
-const y = sphereRadius * Math.sin(phi);
-const z = sphereRadius * Math.cos(phi) * Math.sin(theta);
+                let v = data.imgY / imgH;
+                const theta = (u * 2 * Math.PI) - Math.PI;
+                const phi = (Math.PI / 2) - (v * Math.PI);
+                const x = sphereRadius * Math.cos(phi) * Math.cos(theta);
+                const y = sphereRadius * Math.sin(phi);
+                const z = sphereRadius * Math.cos(phi) * Math.sin(theta);
                 
                 let markerObj;
                 if (data.icon && data.icon.trim() !== '') {
@@ -709,6 +707,7 @@ const z = sphereRadius * Math.cos(phi) * Math.sin(theta);
             
             // Raycaster для кликов по маркерам (с учётом, что спрайты имеют depthTest false, но raycaster их найдёт)
             const raycaster = new THREE.Raycaster();
+	    raycaster.params.Sprite.threshold = 0.1;
             const mouse = new THREE.Vector2();
             const clickHandler = (event) => {
                 const rect = renderer.domElement.getBoundingClientRect();
