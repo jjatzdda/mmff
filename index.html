@@ -674,20 +674,6 @@
                     const imgTexture = textureLoader.load(data.icon);
                     const spriteMat = new THREE.SpriteMaterial({ map: imgTexture, depthTest: false, depthWrite: false });
                     markerObj = new THREE.Sprite(spriteMat);
-markerObj.position.set(x, y, z);
-
-markerObj.userData = {
-    index: i,
-    name: data.name,
-    categoryVisible: true
-};
-
-scene.add(markerObj);
-
-// ВАЖНО: добавляем именно markerObj
-markers3D.push(markerObj);
-
-markerIndices.push(i);
                     markerObj.scale.set(0.22, 0.22, 0.22);
                 } else {
                     const canvas = document.createElement('canvas');
@@ -707,12 +693,12 @@ markerIndices.push(i);
                     const texture = new THREE.CanvasTexture(canvas);
                     const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false });
                     markerObj = new THREE.Sprite(spriteMat);
-		    markerObj.layers.enable(0);
                     markerObj.scale.set(0.22, 0.22, 0.22);
                 }
                 markerObj.position.set(x, y, z);
                 markerObj.userData = { index: i, name: data.name, categoryVisible: true };
                 scene.add(markerObj);
+                markers3D.push(markerObj);
                 markerIndices.push(i);
             }
             
@@ -721,28 +707,18 @@ markerIndices.push(i);
             
             // Raycaster для кликов по маркерам (с учётом, что спрайты имеют depthTest false, но raycaster их найдёт)
             const raycaster = new THREE.Raycaster();
-	    raycaster.layers.enableAll();
-	    raycaster.params.Sprite.threshold = 0.1;
             const mouse = new THREE.Vector2();
             const clickHandler = (event) => {
                 const rect = renderer.domElement.getBoundingClientRect();
                 mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
                 mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
                 raycaster.setFromCamera(mouse, camera);
-                const intersects = raycaster.intersectObjects(markers3D, true);
+                const intersects = raycaster.intersectObjects(markers3D);
                 if (intersects.length > 0) {
-                    let obj = intersects[0].object;
-
-while (obj && obj.userData.index === undefined) {
-    obj = obj.parent;
-}
-
-if (obj && obj.userData.index !== undefined) {
-    openSidebar(obj.userData.index);
-}
-            
+                    const idx = intersects[0].object.userData.index;
+                    if (idx !== undefined) openSidebar(idx);
                 }
-};
+            };
             renderer.domElement.addEventListener('click', clickHandler);
             
             if (resetView || isFirstGlobeActivation || !savedGlobePosition) {
