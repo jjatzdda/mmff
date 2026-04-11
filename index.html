@@ -661,53 +661,82 @@
             
             for (let i = 0; i < markersData.length; i++) {
                 const data = markersData[i];
-                let u = data.imgX / imgW;
-                let v = data.imgY / imgH;
-                const lon = (0.5 - u) * Math.PI * 2;
-const lat = (0.5 - v) * Math.PI;
+let u = data.imgX / imgW;
+let v = 1 - (data.imgY / imgH);
+                const lon = u * Math.PI * 2 - Math.PI;
+const lat = v * Math.PI - Math.PI / 2;
 
 const x = sphereRadius * Math.cos(lat) * Math.sin(lon);
 const y = sphereRadius * Math.sin(lat);
 const z = sphereRadius * Math.cos(lat) * Math.cos(lon);
                 
                 let markerObj;
-                if (data.icon && data.icon.trim() !== '') {
-                    const imgTexture = textureLoader.load(data.icon);
-                    const spriteMat = new THREE.SpriteMaterial({ map: imgTexture, depthTest: false, depthWrite: false });
-                    markerObj = new THREE.Sprite(spriteMat);
-                    markerObj.scale.set(0.22, 0.22, 0.22);
-                } else {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = 64;
-                    canvas.height = 64;
-                    const ctx = canvas.getContext('2d');
-                    ctx.fillStyle = '#ff5555';
-                    ctx.beginPath();
-                    ctx.arc(32, 32, 28, 0, 2 * Math.PI);
-                    ctx.fill();
-                    ctx.strokeStyle = 'white';
-                    ctx.lineWidth = 3;
-                    ctx.stroke();
-                    ctx.fillStyle = 'white';
-                    ctx.font = 'bold 30px Arial';
-                    ctx.fillText('📍', 20, 48);
-                    const texture = new THREE.CanvasTexture(canvas);
-                    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false });
-                    markerObj = new THREE.Sprite(spriteMat);
-                    markerObj.scale.set(0.22, 0.22, 0.22);
-                }
-                markerObj.position.set(x, y, z);
-                markerObj.userData = { index: i, name: data.name, categoryVisible: true };
-                scene.add(markerObj);
-                markers3D.push(markerObj);
-                markerIndices.push(i);
-            }
+
+if (data.icon && data.icon.trim() !== '') {
+    const imgTexture = textureLoader.load(data.icon);
+
+    const spriteMat = new THREE.SpriteMaterial({
+        map: imgTexture,
+        depthTest: false,
+        depthWrite: false,
+        sizeAttenuation: true
+    });
+
+    markerObj = new THREE.Sprite(spriteMat); 
+    markerObj.userData = data;               
+markerObj.scale.set(0.22, 0.22, 0.22);
+
+} else {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ff5555';
+    ctx.beginPath();
+    ctx.arc(32, 32, 28, 0, 2 * Math.PI);
+    ctx.fill();
+
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 30px Arial';
+    ctx.fillText('•', 20, 48);
+
+    const texture = new THREE.CanvasTexture(canvas);
+
+    const spriteMat = new THREE.SpriteMaterial({
+        map: texture,
+        depthTest: false,
+        depthWrite: false
+    });
+
+    markerObj = new THREE.Sprite(spriteMat);
+    markerObj.scale.set(0.22, 0.22, 0.22);
+}
+
+markerObj.position.set(x, y, z);
+
+markerObj.userData = {
+    ...(markerObj.userData || {}), 
+    ...data,                       
+    index: i,
+    name: data.name,
+    categoryVisible: true
+};
+
+scene.add(markerObj);
+markers3D.push(markerObj);
+markerIndices.push(i);
             
             console.log('Создано 3D маркеров:', markers3D.length);
             update3DMarkersVisibility();
             
             // Raycaster для кликов по маркерам (с учётом, что спрайты имеют depthTest false, но raycaster их найдёт)
             const raycaster = new THREE.Raycaster();
+raycaster.params.Sprite.threshold = 0.15;
             const mouse = new THREE.Vector2();
             const clickHandler = (event) => {
                 const rect = renderer.domElement.getBoundingClientRect();
