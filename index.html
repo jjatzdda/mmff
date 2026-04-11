@@ -674,23 +674,20 @@
                     const imgTexture = textureLoader.load(data.icon);
                     const spriteMat = new THREE.SpriteMaterial({ map: imgTexture, depthTest: false, depthWrite: false });
                     markerObj = new THREE.Sprite(spriteMat);
-const hitGeometry = new THREE.SphereGeometry(2, 8, 8);
-const hitMaterial = new THREE.MeshBasicMaterial({
-    transparent: true,
-    opacity: 0
-});
+markerObj.position.set(x, y, z);
 
-const hitMesh = new THREE.Mesh(hitGeometry, hitMaterial);
+markerObj.userData = {
+    index: i,
+    name: data.name,
+    categoryVisible: true
+};
 
-// позиция такая же как у маркера
-hitMesh.position.copy(markerObj.position);
+scene.add(markerObj);
 
-// копируем данные
-hitMesh.userData = markerObj.userData;
+// ВАЖНО: добавляем именно markerObj
+markers3D.push(markerObj);
 
-// добавляем в сцену и массив
-scene.add(hitMesh);
-markers3D.push(hitMesh);
+markerIndices.push(i);
                     markerObj.scale.set(0.22, 0.22, 0.22);
                 } else {
                     const canvas = document.createElement('canvas');
@@ -743,9 +740,8 @@ while (obj && obj.userData.index === undefined) {
 if (obj && obj.userData.index !== undefined) {
     openSidebar(obj.userData.index);
 }
-                    if (idx !== undefined) openSidebar(idx);
+            
                 }
-            };
             renderer.domElement.addEventListener('click', clickHandler);
             
             if (resetView || isFirstGlobeActivation || !savedGlobePosition) {
