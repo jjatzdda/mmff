@@ -662,13 +662,14 @@
             for (let i = 0; i < markersData.length; i++) {
                 const data = markersData[i];
 let u = data.imgX / imgW;
-let v = 1 - (data.imgY / imgH);
-                const lon = u * Math.PI * 2 - Math.PI;
-const lat = v * Math.PI - Math.PI / 2;
+let v = data.imgY / imgH;
 
-const x = sphereRadius * Math.cos(lat) * Math.sin(lon);
-const y = sphereRadius * Math.sin(lat);
-const z = sphereRadius * Math.cos(lat) * Math.cos(lon);
+const theta = (u * 2 * Math.PI) - Math.PI;
+const phi = (Math.PI / 2) - (v * Math.PI);
+
+const x = sphereRadius * Math.cos(phi) * Math.cos(theta);
+const y = sphereRadius * Math.sin(phi);
+const z = sphereRadius * Math.cos(phi) * Math.sin(theta);
                 
                 let markerObj;
 
