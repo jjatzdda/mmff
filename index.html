@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Интерактивная карта — 2D и 3D Глобус</title>
+    <!-- SheetJS для чтения Excel-файла с данными маркеров -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+    <!-- Импорт Three.js и доп. модулей (OrbitControls) для 3D-глобуса -->
     <script type="importmap">
         {
             "imports": {
@@ -14,26 +16,43 @@
         }
     </script>
     <style>
+        /* ----- Глобальные стили, отключающие скролл и выделение ----- */
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background-color: #111; font-family: Arial, sans-serif; }
+
+        /* 2D-контейнер: занимает весь экран, курсор "рука" для панорамирования */
         #map-container { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: grab; }
         #map-container.dragging { cursor: grabbing; }
-        #map-image { position: absolute; width: auto; height: auto; transform-origin: 0 0; pointer-events: none; }
+
+        /* Само изображение карты и накладываемая текстура (оверлей) */
+        #map-image, #map-overlay { position: absolute; top: 0; left: 0; width: auto; height: auto; transform-origin: 0 0; pointer-events: none; }
+        /* Прозрачность оверлея на плоскости – меняется здесь (0.4 = 40%) */
+        #map-overlay { opacity: 0.4; }
+
+        /* Контейнер для 2D-маркеров (абсолютное позиционирование поверх карты) */
         #markers-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         .marker { position: absolute; width: 40px; height: 40px; margin-left: -20px; margin-top: -20px; background-size: contain; background-position: center; background-repeat: no-repeat; cursor: pointer; pointer-events: auto; transition: transform 0.1s; }
         .marker:hover { transform: scale(1.1); }
+
+        /* 3D-контейнер: изначально скрыт, показывается при переключении на глобус */
         #globe-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; background-color: #000; display: none; }
         #globe-canvas { width: 100%; height: 100%; display: block; }
-        .top-buttons { position: absolute; top: 20px; right: 20px; z-index: 20; display: flex; gap: 12px; }
-        #reset-btn, #toggle-globe-btn, #toggle-shade-btn, #toggle-auto-zoom-btn { padding: 10px 20px; font-size: 16px; border: none; background-color: rgba(255,255,255,0.9); border-radius: 6px; cursor: pointer; transition: background 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.2); color: black; }
+
+        /* Панель кнопок в правом верхнем углу. Плавное скрытие при авто-приближении */
+        .top-buttons { position: absolute; top: 20px; right: 20px; z-index: 20; display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; align-items: center; transition: opacity 0.3s ease; }
+        #reset-btn, #toggle-globe-btn, #toggle-shade-btn, #toggle-auto-zoom-btn { padding: 8px 16px; font-size: 14px; border: none; background-color: rgba(255,255,255,0.9); border-radius: 6px; cursor: pointer; transition: background 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.2); color: black; }
         #reset-btn:hover, #toggle-globe-btn:hover, #toggle-shade-btn:hover { background-color: white; }
-        #toggle-shade-btn { display: none; }
+        #toggle-shade-btn { display: none; }  /* появляется только в режиме глобуса */
+
+        /* Боковая панель (сайдбар) с информацией о маркере, шириной 600px */
         #sidebar { position: fixed; top: 0; right: 0; width: 600px; max-width: 90vw; height: 100%; background: white; box-shadow: -2px 0 15px rgba(0,0,0,0.3); z-index: 30; padding: 20px; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.25s ease; overflow-y: auto; }
         #sidebar.open { transform: translateX(0); }
         .close-btn { align-self: flex-end; font-size: 28px; background: none; border: none; cursor: pointer; margin-bottom: 10px; }
         #sidebar-title { margin-bottom: 15px; font-size: 1.5rem; }
         .sidebar-image { width: 100%; height: auto; display: block; margin: 15px 0; border-radius: 6px; }
         .sidebar-text { background-color: #f9f9f9; padding: 12px; border-left: 4px solid #007bff; line-height: 1.4; }
+
+        /* Меню фильтрации (иконка-шестерёнка/крестик) */
         .filter-menu-container { position: absolute; top: 20px; left: 20px; z-index: 25; }
         .filter-icon { width: 48px; height: 48px; background-color: rgba(255,255,255,0.9); border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s ease, background-color 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
         .filter-icon:hover { transform: scale(1.1); background-color: white; }
@@ -43,46 +62,37 @@
         .filter-option { display: flex; align-items: center; gap: 10px; color: black; font-size: 14px; cursor: pointer; padding: 5px 0; min-width: 160px; }
         .filter-option input { width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; }
         .filter-option label { cursor: pointer; white-space: nowrap; }
+
+        /* Всплывающие сообщения об ошибках */
         .error-message { position: fixed; bottom: 20px; left: 20px; background: rgba(255,0,0,0.8); color: white; padding: 8px 15px; border-radius: 4px; z-index: 40; font-size: 14px; }
-.gallery-container {
-    position: relative;
-    display: inline-block;
-    width: 100%;
-}
-.gallery-nav {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 36px;
-    background: rgba(0,0,0,0.4);
-    color: white;
-    border: none;
-    cursor: pointer;
-    padding: 8px 12px;
-    border-radius: 4px;
-    opacity: 0.7;
-    transition: opacity 0.2s;
-    display: none;
-}
-.gallery-nav:hover { opacity: 1; }
-.gallery-nav.prev { left: 8px; }
-.gallery-nav.next { right: 8px; }
+
+        /* Галерея изображений внутри сайдбара (стрелки вперёд/назад) */
+        .gallery-container { position: relative; display: inline-block; width: 100%; }
+        .gallery-nav { position: absolute; top: 50%; transform: translateY(-50%); font-size: 36px; background: rgba(0,0,0,0.4); color: white; border: none; cursor: pointer; padding: 8px 12px; border-radius: 4px; opacity: 0.7; transition: opacity 0.2s; display: none; }
+        .gallery-nav:hover { opacity: 1; }
+        .gallery-nav.prev { left: 8px; }
+        .gallery-nav.next { right: 8px; }
     </style>
 </head>
 <body>
+    <!-- Плоская карта (2D) -->
     <div id="map-container">
         <img id="map-image" src="map.jpg" alt="Карта">
+        <img id="map-overlay" src="t.jpg" alt="Overlay">
         <div id="markers-container"></div>
     </div>
+    <!-- 3D-глобус (изначально скрыт) -->
     <div id="globe-container">
         <canvas id="globe-canvas"></canvas>
     </div>
+    <!-- Панель кнопок -->
     <div class="top-buttons">
         <button id="reset-btn">Сбросить вид</button>
         <button id="toggle-shade-btn">Затенение</button>
         <button id="toggle-globe-btn">Глобус</button>
-<button id="toggle-auto-zoom-btn">Авто. приближение вкл.</button>
+        <button id="toggle-auto-zoom-btn">Авто. приближение вкл.</button>
     </div>
+    <!-- Меню фильтрации категорий -->
     <div class="filter-menu-container">
         <div class="filter-icon" id="filter-icon">
             <svg class="icon-dots" viewBox="0 0 24 24" fill="black"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
@@ -90,33 +100,43 @@
         </div>
         <div class="filter-panel" id="filter-panel"></div>
     </div>
+    <!-- Боковая панель с информацией о выбранном маркере -->
     <div id="sidebar">
         <button class="close-btn" id="close-sidebar">&times;</button>
         <h2 id="sidebar-title"></h2>
         <div class="gallery-container">
-    <img id="sidebar-image" class="sidebar-image" style="display: none;" alt="">
-    <button class="gallery-nav prev" id="gallery-prev">&#10094;</button>
-    <button class="gallery-nav next" id="gallery-next">&#10095;</button>
-</div>
+            <img id="sidebar-image" class="sidebar-image" style="display: none;" alt="">
+            <button class="gallery-nav prev" id="gallery-prev">&#10094;</button>
+            <button class="gallery-nav next" id="gallery-next">&#10095;</button>
+        </div>
         <div id="sidebar-text" class="sidebar-text"></div>
     </div>
 
     <script type="module">
+        // Импорт Three.js и OrbitControls
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
         // ========== ОБЩИЕ ДАННЫЕ ==========
-        let markersData = [];       
-        let markerElements2D = [];    
-        let categoriesSet = new Set();
-        let activeCategories = new Set();
-        let dataLoaded = false;
-let autoZoomEnabled = false;
-let autoZoomTarget = null;          // { imgX, imgY, scale, translateX, translateY } – исходное состояние
-let autoZoomAnimFrame = null;
-let dragJustHappened = false;
-const ZOOM_SCALE_FACTOR = 2.5;      // во сколько раз увеличить карту при приближении
-const ZOOM_ANIM_DURATION = 400;     // мс анимации
+        let markersData = [];               // массив объектов маркеров (координаты, описание, иконка, категория)
+        let markerElements2D = [];          // DOM-элементы маркеров на плоской карте
+        let categoriesSet = new Set();      // все уникальные категории
+        let activeCategories = new Set();    // активные для отображения категории
+        let dataLoaded = false;              // флаг готовности данных из Excel
+
+        // Настройки авто-приближения (по умолчанию выключено)
+        let autoZoomEnabled = false;
+        let autoZoomTarget = null;           // для 2D: исходные scale, translateX, translateY
+        let autoZoomAnimFrame = null;
+        let autoZoom3DCameraStart = null;    // для 3D: начальная позиция камеры
+        let autoZoom3DAnimFrame = null;
+        let autoZoom3DMarkerIndex = -1;
+        let autoZoom3DActive = false;
+        let dragJustHappened = false;        // флаг, чтобы не закрывать сайдбар после панорамирования
+        const ZOOM_SCALE_FACTOR = 2.5;       // во сколько раз увеличить карту
+        const ZOOM_ANIM_DURATION = 400;      // длительность анимации в мс
+
+        // DOM-элементы
         const container = document.getElementById('map-container');
         const mapImg = document.getElementById('map-image');
         const resetBtn = document.getElementById('reset-btn');
@@ -132,8 +152,9 @@ const ZOOM_ANIM_DURATION = 400;     // мс анимации
         const filterIcon = document.getElementById('filter-icon');
         const filterPanel = document.getElementById('filter-panel');
         const globeCanvas = document.getElementById('globe-canvas');
+        const mapOverlay = document.getElementById('map-overlay');
 
-        // 2D переменные
+        // 2D переменные (масштабирование и панорамирование)
         let scale = 1, minScale = 1, maxScale = 5;
         let translateX = 0, translateY = 0;
         let isDragging = false, startX = 0, startY = 0, lastTranslateX = 0, lastTranslateY = 0;
@@ -141,26 +162,35 @@ const ZOOM_ANIM_DURATION = 400;     // мс анимации
         // 3D переменные
         let globeMode = false;
         let scene, camera, renderer, controls, globeSphere;
-        let markers3D = [];
+        let markers3D = [];          // спрайты маркеров на сфере
         let markerIndices = [];
         let animationId = null;
         let shadeEnabled = true;
-        let planeNormal, planeConstant;
+        let planeNormal, planeConstant;   // плоскость затенения (полусфера)
         let savedGlobePosition = null, savedGlobeTarget = null;
         let isFirstGlobeActivation = true;
         let hoveredMarker = null;
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
-let pointerDownPos = new THREE.Vector2();
-let pointerMoved = false;
-let pointerDownTime = 0;
-let sidebarJustOpenedFromGlobe = false;
-let currentGalleryImages = [];
-let currentGalleryIndex = 0;
-let overlayTexture = null;          // текстура для полупрозрачного слоя
+        let pointerDownPos = new THREE.Vector2();
+        let pointerMoved = false;
+        let pointerDownTime = 0;
+        let sidebarJustOpenedFromGlobe = false;
+        let currentGalleryImages = [];
+        let currentGalleryIndex = 0;
 
-        // ========== 2D ФУНКЦИИ ==========
+        // ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ СКРЫТИЯ КНОПОК ПРИ АВТО-ПРИБЛИЖЕНИИ ==========
+        const topButtons = document.querySelector('.top-buttons');
+        function hideTopButtons() {
+            if (topButtons) topButtons.style.opacity = '0';
+        }
+        function showTopButtons() {
+            if (topButtons) topButtons.style.opacity = '1';
+        }
+
+        // ========== 2D ФУНКЦИИ (работа с плоской картой) ==========
         function updateMarkers2D() {
+            // Пересчитывает позиции всех 2D-маркеров в соответствии с текущим масштабом и смещением
             markerElements2D.forEach((marker, i) => {
                 if (i >= markersData.length) return;
                 const data = markersData[i];
@@ -172,11 +202,15 @@ let overlayTexture = null;          // текстура для полупроз�
         }
 
         function updateTransform2D() {
-            mapImg.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+            // Применяет трансформацию (translate + scale) к изображению карты и оверлею
+            const transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+            mapImg.style.transform = transform;
+            if (mapOverlay) mapOverlay.style.transform = transform;
             updateMarkers2D();
         }
 
         function setCoverAndCenter2D() {
+            // Устанавливает такой масштаб, чтобы карта полностью покрывала экран (cover), и центрирует её
             const rect = container.getBoundingClientRect();
             const imgW = mapImg.naturalWidth;
             const imgH = mapImg.naturalHeight;
@@ -191,6 +225,7 @@ let overlayTexture = null;          // текстура для полупроз�
         }
 
         function clampTranslate2D() {
+            // Ограничивает смещение, чтобы карта не выходила за границы экрана
             const rect = container.getBoundingClientRect();
             const imgW = mapImg.naturalWidth * scale;
             const imgH = mapImg.naturalHeight * scale;
@@ -201,6 +236,7 @@ let overlayTexture = null;          // текстура для полупроз�
         }
 
         function applyFilter() {
+            // Применяет текущий фильтр категорий к 2D-маркерам и (если активен глобус) к 3D-маркерам
             markerElements2D.forEach((marker, idx) => {
                 const category = markersData[idx].category;
                 marker.style.display = activeCategories.has(category) ? 'block' : 'none';
@@ -209,6 +245,7 @@ let overlayTexture = null;          // текстура для полупроз�
         }
 
         function update3DMarkersVisibility() {
+            // Обновляет флаги categoryVisible у 3D-маркеров в соответствии с фильтром
             markers3D.forEach((marker, i) => {
                 const idx = markerIndices[i];
                 const category = markersData[idx].category;
@@ -217,19 +254,26 @@ let overlayTexture = null;          // текстура для полупроз�
         }
 
         function updateCombinedVisibility() {
+            // Окончательная видимость 3D-маркеров: учитывает фильтр и положение камеры (скрывает маркеры за сферой)
             if (!camera) return;
             const cameraDir = camera.position.clone().normalize();
             markers3D.forEach(marker => {
+                // Если активен режим авто-приближения, скрываем все маркеры, кроме выбранного
+                if (autoZoom3DMarkerIndex !== -1 && marker.userData.index !== autoZoom3DMarkerIndex) {
+                    marker.visible = false;
+                    return;
+                }
                 if (!marker.userData.categoryVisible) {
                     marker.visible = false;
                     return;
                 }
                 const markerDir = marker.position.clone().normalize();
-                marker.visible = markerDir.dot(cameraDir) > 0.1;
+                marker.visible = markerDir.dot(cameraDir) > 0.1;   // показываем только переднюю полусферу
             });
         }
 
         function buildFilterMenu() {
+            // Строит панель фильтров на основе уникальных категорий (чекбоксы)
             filterPanel.innerHTML = '';
             const categories = Array.from(categoriesSet).sort();
             categories.forEach(cat => {
@@ -252,103 +296,194 @@ let overlayTexture = null;          // текстура для полупроз�
         }
 
         function openSidebar(index) {
-    if (!markersData[index]) return;
-    const data = markersData[index];
-    sidebarTitle.textContent = data.name;
-    sidebarText.textContent = data.description || 'Описание отсутствует';
+            // Открывает боковую панель с информацией о выбранном маркере и загружает галерею изображений
+            if (!markersData[index]) return;
+            const data = markersData[index];
+            sidebarTitle.textContent = data.name;
+            sidebarText.textContent = data.description || 'Описание отсутствует';
 
-    // Разбираем изображения
-    const rawImages = data.imageUrl?.trim() || '';
-    currentGalleryImages = rawImages ? rawImages.split(';').map(s => s.trim()).filter(s => s) : [];
-    currentGalleryIndex = 0;
+            const rawImages = data.imageUrl?.trim() || '';
+            currentGalleryImages = rawImages ? rawImages.split(';').map(s => s.trim()).filter(s => s) : [];
+            currentGalleryIndex = 0;
 
-    const sidebarImg = document.getElementById('sidebar-image');
-    const prevBtn = document.getElementById('gallery-prev');
-    const nextBtn = document.getElementById('gallery-next');
+            const sidebarImg = document.getElementById('sidebar-image');
+            const prevBtn = document.getElementById('gallery-prev');
+            const nextBtn = document.getElementById('gallery-next');
 
-    if (currentGalleryImages.length > 0) {
-        sidebarImg.src = currentGalleryImages[0];
-        sidebarImg.alt = data.name;
-        sidebarImg.style.display = 'block';
-    } else {
-        sidebarImg.style.display = 'none';
-    }
+            if (currentGalleryImages.length > 0) {
+                sidebarImg.src = currentGalleryImages[0];
+                sidebarImg.alt = data.name;
+                sidebarImg.style.display = 'block';
+            } else {
+                sidebarImg.style.display = 'none';
+            }
 
-    // Показываем стрелки только если изображений больше одного
-    if (currentGalleryImages.length > 1) {
-        prevBtn.style.display = 'block';
-        nextBtn.style.display = 'block';
-    } else {
-        prevBtn.style.display = 'none';
-        nextBtn.style.display = 'none';
-    }
+            if (currentGalleryImages.length > 1) {
+                prevBtn.style.display = 'block';
+                nextBtn.style.display = 'block';
+            } else {
+                prevBtn.style.display = 'none';
+                nextBtn.style.display = 'none';
+            }
 
-    sidebar.classList.add('open');
-}
-
-document.getElementById('gallery-prev').addEventListener('click', () => {
-    if (currentGalleryImages.length < 2) return;
-    currentGalleryIndex = (currentGalleryIndex - 1 + currentGalleryImages.length) % currentGalleryImages.length;
-    document.getElementById('sidebar-image').src = currentGalleryImages[currentGalleryIndex];
-});
-document.getElementById('gallery-next').addEventListener('click', () => {
-    if (currentGalleryImages.length < 2) return;
-    currentGalleryIndex = (currentGalleryIndex + 1) % currentGalleryImages.length;
-    document.getElementById('sidebar-image').src = currentGalleryImages[currentGalleryIndex];
-});
-
-// Плавно интерполирует параметры карты к целевым
-function animateAutoZoom(targetScale, targetTX, targetTY, duration, callback) {
-    const startScale = scale;
-    const startTX = translateX;
-    const startTY = translateY;
-    const startTime = performance.now();
-
-    function step(now) {
-        const elapsed = now - startTime;
-        const t = Math.min(elapsed / duration, 1.0);
-        // easing easeInOutQuad
-        const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
-        scale = startScale + (targetScale - startScale) * ease;
-        translateX = startTX + (targetTX - startTX) * ease;
-        translateY = startTY + (targetTY - startTY) * ease;
-        updateTransform2D();
-        if (t < 1.0) {
-            autoZoomAnimFrame = requestAnimationFrame(step);
-        } else {
-            scale = targetScale;
-            translateX = targetTX;
-            translateY = targetTY;
-            updateTransform2D();
-            autoZoomAnimFrame = null;
-            if (callback) callback();
+            sidebar.classList.add('open');
         }
-    }
-    if (autoZoomAnimFrame) cancelAnimationFrame(autoZoomAnimFrame);
-    autoZoomAnimFrame = requestAnimationFrame(step);
-}
 
-// Вычисляет целевые параметры, чтобы imgX,imgY оказались в центре экрана
-function getAutoZoomTarget(imgX, imgY) {
-    const rect = container.getBoundingClientRect();
-    const targetScale = minScale * ZOOM_SCALE_FACTOR;
-    const newTX = (rect.width / 2) - imgX * targetScale;
-    const newTY = (rect.height / 2) - imgY * targetScale;
-    return { scale: targetScale, translateX: newTX, translateY: newTY };
-}
+        // Обработчики для стрелок галереи
+        document.getElementById('gallery-prev').addEventListener('click', () => {
+            if (currentGalleryImages.length < 2) return;
+            currentGalleryIndex = (currentGalleryIndex - 1 + currentGalleryImages.length) % currentGalleryImages.length;
+            document.getElementById('sidebar-image').src = currentGalleryImages[currentGalleryIndex];
+        });
+        document.getElementById('gallery-next').addEventListener('click', () => {
+            if (currentGalleryImages.length < 2) return;
+            currentGalleryIndex = (currentGalleryIndex + 1) % currentGalleryImages.length;
+            document.getElementById('sidebar-image').src = currentGalleryImages[currentGalleryIndex];
+        });
 
-// Восстанавливает исходный вид и показывает все маркеры
-function restoreAutoZoom() {
-    if (!autoZoomTarget) return;
-    animateAutoZoom(autoZoomTarget.scale, autoZoomTarget.translateX, autoZoomTarget.translateY, ZOOM_ANIM_DURATION, () => {
-        // Показать все маркеры
-        markerElements2D.forEach(m => { m.style.display = ''; });
-        applyFilter(); // восстановить видимость согласно фильтру
-        autoZoomTarget = null;
-    });
-}
+        // ========== АНИМАЦИИ ДЛЯ 2D АВТО-ПРИБЛИЖЕНИЯ ==========
+        function animateAutoZoom(targetScale, targetTX, targetTY, duration, callback) {
+            // Плавно увеличивает карту и перемещает её так, чтобы выбранный маркер оказался по центру (с учётом сайдбара)
+            hideTopButtons();
+            const startScale = scale;
+            const startTX = translateX;
+            const startTY = translateY;
+            const startTime = performance.now();
 
-        // ========== ЗАГРУЗКА EXCEL ==========
+            function step(now) {
+                const elapsed = now - startTime;
+                const t = Math.min(elapsed / duration, 1.0);
+                const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+                scale = startScale + (targetScale - startScale) * ease;
+                translateX = startTX + (targetTX - startTX) * ease;
+                translateY = startTY + (targetTY - startTY) * ease;
+                updateTransform2D();
+                if (t < 1.0) {
+                    autoZoomAnimFrame = requestAnimationFrame(step);
+                } else {
+                    scale = targetScale;
+                    translateX = targetTX;
+                    translateY = targetTY;
+                    updateTransform2D();
+                    autoZoomAnimFrame = null;
+                    showTopButtons();
+                    if (callback) callback();
+                }
+            }
+            if (autoZoomAnimFrame) cancelAnimationFrame(autoZoomAnimFrame);
+            autoZoomAnimFrame = requestAnimationFrame(step);
+        }
+
+        function getAutoZoomTarget2D(imgX, imgY) {
+            // Рассчитывает финальные параметры (масштаб и смещение) для центрирования маркера с учётом открытой боковой панели
+            const rect = container.getBoundingClientRect();
+            const sidebarWidth = sidebar.classList.contains('open') ? 600 : 0;
+            const availableWidth = rect.width - sidebarWidth;
+            const centerX = availableWidth / 2;
+            const targetScale = minScale * ZOOM_SCALE_FACTOR;
+            const newTX = centerX - imgX * targetScale;
+            const newTY = (rect.height / 2) - imgY * targetScale;
+            return { scale: targetScale, translateX: newTX, translateY: newTY };
+        }
+
+        function restoreAutoZoom2D() {
+            // Возвращает карту в исходное состояние и показывает все скрытые маркеры
+            if (!autoZoomTarget) return;
+            animateAutoZoom(autoZoomTarget.scale, autoZoomTarget.translateX, autoZoomTarget.translateY, ZOOM_ANIM_DURATION, () => {
+                markerElements2D.forEach(m => { m.style.display = ''; });
+                applyFilter();
+                autoZoomTarget = null;
+            });
+        }
+
+        // ========== АНИМАЦИИ ДЛЯ 3D АВТО-ПРИБЛИЖЕНИЯ ==========
+        function animateCameraToMarker(markerPos, targetDistance = 3.8, duration = 600) {
+            // Плавно подлетает к выбранному маркеру на сфере, учитывая открытую боковую панель (смещает камеру вправо)
+            if (!camera || !controls) return;
+            hideTopButtons();
+            if (!autoZoom3DCameraStart) {
+                autoZoom3DCameraStart = {
+                    pos: camera.position.clone(),
+                    target: controls.target.clone()
+                };
+            }
+            const startPos = camera.position.clone();
+            const startTarget = controls.target.clone();
+            const dir = markerPos.clone().normalize();
+            
+            // Вычисляем смещение камеры, чтобы маркер оказался в центре доступной области (левее центра экрана)
+            const sidebarWidth = sidebar.classList.contains('open') ? 600 : 0;
+            const rect = renderer.domElement.getBoundingClientRect();
+            const availableWidth = rect.width - sidebarWidth;
+            const shiftRatio = (rect.width / 2 - availableWidth / 2) / rect.width;
+            const angleY = shiftRatio * 0.9;
+            const quaternion = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angleY);
+            const rotatedDir = dir.clone().applyQuaternion(quaternion);
+            const targetPos = rotatedDir.multiplyScalar(targetDistance);
+            const targetLookAt = new THREE.Vector3(0, 0, 0);
+            
+            const startTime = performance.now();
+            function step(now) {
+                const elapsed = now - startTime;
+                const t = Math.min(elapsed / duration, 1.0);
+                const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+                camera.position.lerpVectors(startPos, targetPos, ease);
+                controls.target.lerpVectors(startTarget, targetLookAt, ease);
+                controls.update();
+                if (t < 1.0) {
+                    autoZoom3DAnimFrame = requestAnimationFrame(step);
+                } else {
+                    camera.position.copy(targetPos);
+                    controls.target.copy(targetLookAt);
+                    controls.update();
+                    autoZoom3DAnimFrame = null;
+                    autoZoom3DActive = false;
+                    showTopButtons();
+                }
+            }
+            if (autoZoom3DAnimFrame) cancelAnimationFrame(autoZoom3DAnimFrame);
+            autoZoom3DActive = true;
+            autoZoom3DAnimFrame = requestAnimationFrame(step);
+        }
+
+        function restoreAutoZoom3D() {
+            // Возвращает камеру глобуса в исходное положение и показывает все маркеры
+            if (!autoZoom3DCameraStart) return;
+            if (autoZoom3DMarkerIndex >= 0) {
+                markers3D.forEach(m => m.visible = true);
+                autoZoom3DMarkerIndex = -1;
+                updateCombinedVisibility();
+            }
+            const startPos = camera.position.clone();
+            const startTarget = controls.target.clone();
+            const endPos = autoZoom3DCameraStart.pos;
+            const endTarget = autoZoom3DCameraStart.target;
+            const duration = 600;
+            const startTime = performance.now();
+            function step(now) {
+                const elapsed = now - startTime;
+                const t = Math.min(elapsed / duration, 1.0);
+                const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+                camera.position.lerpVectors(startPos, endPos, ease);
+                controls.target.lerpVectors(startTarget, endTarget, ease);
+                controls.update();
+                if (t < 1.0) {
+                    autoZoom3DAnimFrame = requestAnimationFrame(step);
+                } else {
+                    camera.position.copy(endPos);
+                    controls.target.copy(endTarget);
+                    controls.update();
+                    autoZoom3DAnimFrame = null;
+                    autoZoom3DCameraStart = null;
+                    autoZoom3DActive = false;
+                    showTopButtons();
+                }
+            }
+            if (autoZoom3DAnimFrame) cancelAnimationFrame(autoZoom3DAnimFrame);
+            autoZoom3DAnimFrame = requestAnimationFrame(step);
+        }
+
+        // ========== ЗАГРУЗКА ДАННЫХ ИЗ EXCEL ==========
         async function loadMarkersFromExcel() {
             try {
                 const response = await fetch('data.xlsx');
@@ -363,6 +498,7 @@ function restoreAutoZoom() {
                 markersData = []; markerElements2D = [];
                 categoriesSet.clear(); activeCategories.clear();
 
+                // Проход по строкам, начиная со второй (первая – заголовки)
                 for (let i = 1; i < rows.length; i++) {
                     const row = rows[i];
                     const name = row[0]?.toString().trim() || '';
@@ -382,6 +518,7 @@ function restoreAutoZoom() {
                     categoriesSet.add(markerData.category);
                     activeCategories.add(markerData.category);
                     
+                    // Создаём DOM-элемент маркера для 2D
                     const marker = document.createElement('div');
                     marker.className = 'marker';
                     if (markerData.icon) {
@@ -396,24 +533,23 @@ function restoreAutoZoom() {
                         marker.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
                     }
                     marker.dataset.index = markersData.length - 1;
+                    // Обработчик клика по маркеру на плоскости
                     marker.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const idx = parseInt(marker.dataset.index);
-    openSidebar(idx);
-    if (autoZoomEnabled) {
-        // Сохраняем текущее состояние, если ещё не приближались
-        if (!autoZoomTarget) {
-            autoZoomTarget = { scale, translateX, translateY };
-        }
-        // Скрыть все маркеры, кроме текущего
-        markerElements2D.forEach((m, i) => {
-            if (i !== idx) m.style.display = 'none';
-        });
-        // Вычислить целевые параметры и анимировать
-        const target = getAutoZoomTarget(markersData[idx].imgX, markersData[idx].imgY);
-        animateAutoZoom(target.scale, target.translateX, target.translateY, ZOOM_ANIM_DURATION);
-    }
-});
+                        e.stopPropagation();
+                        const idx = parseInt(marker.dataset.index);
+                        openSidebar(idx);
+                        if (autoZoomEnabled && !globeMode) {
+                            if (!autoZoomTarget) {
+                                autoZoomTarget = { scale, translateX, translateY };
+                            }
+                            // Скрываем все маркеры, кроме выбранного
+                            markerElements2D.forEach((m, i) => {
+                                if (i !== idx) m.style.display = 'none';
+                            });
+                            const target = getAutoZoomTarget2D(markersData[idx].imgX, markersData[idx].imgY);
+                            animateAutoZoom(target.scale, target.translateX, target.translateY, ZOOM_ANIM_DURATION);
+                        }
+                    });
                     markersContainer.appendChild(marker);
                     markerElements2D.push(marker);
                 }
@@ -432,11 +568,12 @@ function restoreAutoZoom() {
             }
         }
 
-        // ========== ВЫЧИСЛЕНИЕ ПЛОСКОСТИ ЗАТЕНЕНИЯ ==========
+        // ========== ВЫЧИСЛЕНИЕ ПЛОСКОСТИ ЗАТЕНЕНИЯ (полусфера) ==========
         function computeShadePlane() {
             const R = 1.8;
             const A = new THREE.Vector3(0, R, 0), B = new THREE.Vector3(0, -R, 0);
             const imgW = mapImg.naturalWidth, imgH = mapImg.naturalHeight;
+            // Точка на текстуре (516,570) – задаёт границу затемнения
             const u = 516 / imgW, v = 570 / imgH;
             const theta = (u * 2 * Math.PI) - Math.PI;
             const phi = (Math.PI / 2) - (v * Math.PI);
@@ -446,6 +583,7 @@ function restoreAutoZoom() {
             let normal = new THREE.Vector3().crossVectors(AB, AC).normalize();
             let d = -normal.dot(A);
             
+            // Проверяем, что точка "Море Восточное" (488,617) находится в затенённой полусфере (side < 0)
             const uTest = 488 / imgW, vTest = 617 / imgH;
             const thetaTest = (uTest * 2 * Math.PI) - Math.PI;
             const phiTest = (Math.PI / 2) - (vTest * Math.PI);
@@ -457,48 +595,47 @@ function restoreAutoZoom() {
             return { normal, constant: d };
         }
 
-        // ========== ШЕЙДЕРНЫЙ МАТЕРИАЛ ==========
+        // ========== ШЕЙДЕРНЫЙ МАТЕРИАЛ ДЛЯ СФЕРЫ (затенение + оверлей) ==========
         function createGlobeMaterial(texture, overlayTex) {
-    const { normal, constant } = computeShadePlane();
-    planeNormal = normal.clone(); planeConstant = constant;
-    
-    const vertexShader = `varying vec3 vLocalNormal; varying vec2 vUv; void main() { vUv = uv; vLocalNormal = normalize(normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
-    const fragmentShader = `
-        uniform sampler2D map;
-        uniform sampler2D overlayMap;
-        uniform vec3 u_planeNormal;
-        uniform float u_planeConstant;
-        uniform bool u_shadeEnabled;
-        uniform float u_overlayOpacity;  // <-- новый параметр
-        varying vec2 vUv;
-        varying vec3 vLocalNormal;
-        void main() {
-            vec4 texColor = texture2D(map, vUv);
-            if (u_shadeEnabled && dot(vLocalNormal, u_planeNormal) + u_planeConstant < 0.0) {
-                texColor.rgb *= 0.35;
-            }
-            vec4 overlayColor = texture2D(overlayMap, vUv);
-            // Умножаем альфу текстуры на общий коэффициент (от 0 до 1)
-            float alpha = overlayColor.a * u_overlayOpacity;
-            gl_FragColor = mix(texColor, overlayColor, alpha);
+            const { normal, constant } = computeShadePlane();
+            planeNormal = normal.clone(); planeConstant = constant;
+            const vertexShader = `varying vec3 vLocalNormal; varying vec2 vUv; void main() { vUv = uv; vLocalNormal = normalize(normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+            const fragmentShader = `
+                uniform sampler2D map;
+                uniform sampler2D overlayMap;
+                uniform vec3 u_planeNormal;
+                uniform float u_planeConstant;
+                uniform bool u_shadeEnabled;
+                uniform float u_overlayOpacity;
+                varying vec2 vUv;
+                varying vec3 vLocalNormal;
+                void main() {
+                    vec4 texColor = texture2D(map, vUv);
+                    // Затемнение: если точка лежит с отрицательной стороны плоскости, уменьшаем яркость
+                    if (u_shadeEnabled && dot(vLocalNormal, u_planeNormal) + u_planeConstant < 0.0) {
+                        texColor.rgb *= 0.35;
+                    }
+                    vec4 overlayColor = texture2D(overlayMap, vUv);
+                    float alpha = overlayColor.a * u_overlayOpacity;
+                    gl_FragColor = mix(texColor, overlayColor, alpha);
+                }
+            `;
+            const uniforms = {
+                map: { value: texture },
+                overlayMap: { value: overlayTex || new THREE.Texture() },
+                u_planeNormal: { value: planeNormal },
+                u_planeConstant: { value: planeConstant },
+                u_shadeEnabled: { value: shadeEnabled },
+                u_overlayOpacity: { value: 0.4 }   // прозрачность оверлея на глобусе (0..1)
+            };
+            return new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader, side: THREE.DoubleSide });
         }
-    `;
-    const uniforms = {
-        map: { value: texture },
-        overlayMap: { value: overlayTex || new THREE.Texture() },
-        u_planeNormal: { value: planeNormal },
-        u_planeConstant: { value: planeConstant },
-        u_shadeEnabled: { value: shadeEnabled },
-        u_overlayOpacity: { value: 0.4 }   // начальное значение, можно менять
-    };
-    return new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader, side: THREE.DoubleSide });
-}
         
         function updateShadeUniforms() {
             if (globeSphere?.material) globeSphere.material.uniforms.u_shadeEnabled.value = shadeEnabled;
         }
 
-        // ========== 3D ГЛОБУС (СПРАЙТЫ) ==========
+        // ========== 3D ГЛОБУС (создание сцены, сферы и маркеров) ==========
         function destroyGlobe() {
             if (animationId) { cancelAnimationFrame(animationId); animationId = null; }
             if (renderer) { renderer.dispose(); renderer = null; }
@@ -506,6 +643,7 @@ function restoreAutoZoom() {
             markers3D = []; markerIndices = []; hoveredMarker = null;
         }
 
+        // Преобразование координат (x,y) изображения в 3D-позицию на сфере
         function pixelToSphere(imgX, imgY, R = 1.8, flipU = true, meridianShift = 0) {
             const w = mapImg.naturalWidth, h = mapImg.naturalHeight;
             if (!w || !h) return new THREE.Vector3(0,0,0);
@@ -517,8 +655,8 @@ function restoreAutoZoom() {
         }
 
         function setDefaultGlobeView() {
+            // Устанавливает камеру так, чтобы была видна незатенённая полусфера
             if (!controls || !camera) return;
-            // Направление на освещённую сторону (противоположно нормали затенения)
             const viewDir = planeNormal.clone().normalize();
             camera.position.copy(viewDir.multiplyScalar(5));
             controls.target.set(0, 0, 0);
@@ -530,6 +668,11 @@ function restoreAutoZoom() {
             setDefaultGlobeView();
             savedGlobePosition = camera.position.clone();
             savedGlobeTarget = controls.target.clone();
+            markers3D.forEach(m => m.visible = true);
+            autoZoom3DMarkerIndex = -1;
+            autoZoom3DActive = false;
+            autoZoom3DCameraStart = null;
+            updateCombinedVisibility();
         }
 
         async function initGlobe(resetView = true) {
@@ -546,7 +689,7 @@ function restoreAutoZoom() {
             
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
- controls.dampingFactor = 0.05;
+            controls.dampingFactor = 0.05;
             controls.rotateSpeed = 1.0;
             controls.zoomSpeed = 1.2;
             controls.enableZoom = true;
@@ -556,30 +699,27 @@ function restoreAutoZoom() {
             
             const textureLoader = new THREE.TextureLoader();
             const mapTexture = await new Promise(res => textureLoader.load('map.jpg', res));
-// Загрузка дополнительной полупрозрачной текстуры (можно сменить имя файла)
-const overlayUrl = 't.jpg';  // укажите нужный файл, если он есть
-let overlayTex = null;
-try {
-    overlayTex = await new Promise((res, rej) => {
-        textureLoader.load(overlayUrl, res, undefined, () => res(null)); // если файла нет, вернёт null
-    });
-} catch (e) { overlayTex = null; }
-const material = createGlobeMaterial(mapTexture, overlayTex);
+            let overlayTex = null;
+            try {
+                overlayTex = await new Promise((res, rej) => {
+                    textureLoader.load('t.jpg', res, undefined, () => res(null));
+                });
+            } catch(e) { overlayTex = null; }
+            const material = createGlobeMaterial(mapTexture, overlayTex);
             globeSphere = new THREE.Mesh(new THREE.SphereGeometry(1.8, 128, 128), material);
             scene.add(globeSphere);
             
             const flipU = true, meridianShift = 0;
-            
             markers3D = []; markerIndices = [];
             for (let i = 0; i < markersData.length; i++) {
                 const data = markersData[i];
                 const pos = pixelToSphere(data.imgX, data.imgY, 1.8, flipU, meridianShift);
-                
                 let sprite;
                 if (data.icon?.trim()) {
                     const tex = textureLoader.load(data.icon);
                     sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false }));
                 } else {
+                    // Создаём спрайт с кастомным кружком
                     const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 64;
                     const ctx = canvas.getContext('2d');
                     ctx.fillStyle = '#ff5555'; ctx.beginPath(); ctx.arc(32,32,28,0,2*Math.PI); ctx.fill();
@@ -589,19 +729,19 @@ const material = createGlobeMaterial(mapTexture, overlayTex);
                     sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false }));
                 }
                 sprite.position.copy(pos);
-                sprite.userData = { index: i, categoryVisible: true, baseScale: 0.22 }; // уменьшен размер
-                sprite.scale.set(0.22, 0.22, 0.22);
+                sprite.userData = { index: i, categoryVisible: true, baseScale: 0.14 };
+                sprite.scale.set(0.14, 0.14, 0.14);
                 scene.add(sprite);
                 markers3D.push(sprite);
                 markerIndices.push(i);
             }
             
-            console.log(`Создано 3D спрайтов: ${markers3D.length}`);
             update3DMarkersVisibility();
-            renderer.domElement.addEventListener('mousemove', onMouseMove);   // ховер
-renderer.domElement.addEventListener('pointerdown', onPointerDown);
-renderer.domElement.addEventListener('pointerup', onPointerUp);
-window.addEventListener('pointermove', onPointerMove);  // на window, чтобы ловить движение везде
+            // События для взаимодействия с маркерами на глобусе
+            renderer.domElement.addEventListener('mousemove', onMouseMove);
+            renderer.domElement.addEventListener('pointerdown', onPointerDown);
+            renderer.domElement.addEventListener('pointerup', onPointerUp);
+            window.addEventListener('pointermove', onPointerMove);
             
             if (resetView || isFirstGlobeActivation || !savedGlobePosition) {
                 setDefaultGlobeView();
@@ -625,81 +765,84 @@ window.addEventListener('pointermove', onPointerMove);  // на window, чтоб
             return true;
         }
 
+        // ---------- Обработчики событий мыши для 3D ----------
         function onMouseMove(event) {
-    // ТОЛЬКО ховер – без отслеживания перетаскивания
-    if (!globeMode || !camera) return;
-    const rect = renderer.domElement.getBoundingClientRect();
-    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
-    const visibleMarkers = markers3D.filter(m => m.visible);
-    const intersects = raycaster.intersectObjects(visibleMarkers);
-    
-    if (hoveredMarker) {
-        hoveredMarker.scale.setScalar(hoveredMarker.userData.baseScale);
-        hoveredMarker = null;
-    }
-    if (intersects.length > 0) {
-        const hit = intersects[0].object;
-        hit.scale.setScalar(hit.userData.baseScale * 1.2);
-        hoveredMarker = hit;
-    }
-}
+            // Ховер-эффект: увеличение маркера при наведении
+            if (!globeMode || !camera) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const visibleMarkers = markers3D.filter(m => m.visible);
+            const intersects = raycaster.intersectObjects(visibleMarkers);
+            if (hoveredMarker) {
+                hoveredMarker.scale.setScalar(hoveredMarker.userData.baseScale);
+                hoveredMarker = null;
+            }
+            if (intersects.length > 0) {
+                const hit = intersects[0].object;
+                hit.scale.setScalar(hit.userData.baseScale * 1.2);
+                hoveredMarker = hit;
+            }
+        }
 
-function onPointerDown(event) {
-    if (!globeMode || !camera) return;
-    const rect = renderer.domElement.getBoundingClientRect();
-    pointerDownPos.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    pointerDownPos.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    pointerMoved = false;
-    pointerDownTime = Date.now();
-}
+        function onPointerDown(event) {
+            if (!globeMode || !camera) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            pointerDownPos.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            pointerDownPos.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            pointerMoved = false;
+            pointerDownTime = Date.now();
+        }
 
-function onPointerMove(event) {
-    // Отслеживаем любое движение с зажатой кнопкой
-    if (!globeMode || !camera) return;
-    if (event.buttons === 1) {
-        pointerMoved = true;
-dragJustHappened = true;
-    }
-}
+        function onPointerMove(event) {
+            if (!globeMode || !camera) return;
+            if (event.buttons === 1) {
+                pointerMoved = true;
+                dragJustHappened = true;
+            }
+        }
 
-function onPointerUp(event) {
-    if (!globeMode || !camera) return;
-    const rect = renderer.domElement.getBoundingClientRect();
-    const upPos = new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
+        function onPointerUp(event) {
+            // Обработка клика по маркеру (без учёта перетаскивания)
+            if (!globeMode || !camera) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            const upPos = new THREE.Vector2(
+                ((event.clientX - rect.left) / rect.width) * 2 - 1,
+                -((event.clientY - rect.top) / rect.height) * 2 + 1
+            );
+            const dist = Math.sqrt(Math.pow(upPos.x - pointerDownPos.x, 2) + Math.pow(upPos.y - pointerDownPos.y, 2));
+            const dt = Date.now() - pointerDownTime;
+            if (pointerMoved || dist > 0.03 || dt > 400) return;
 
-    // Расстояние между нажатием и отпусканием (в нормализованных координатах)
-    const dist = Math.sqrt(
-        Math.pow(upPos.x - pointerDownPos.x, 2) + Math.pow(upPos.y - pointerDownPos.y, 2)
-    );
-    const dt = Date.now() - pointerDownTime;
+            raycaster.setFromCamera(pointerDownPos, camera);
+            const visibleMarkers = markers3D.filter(m => m.visible);
+            const intersects = raycaster.intersectObjects(visibleMarkers);
+            if (intersects.length > 0) {
+                const idx = intersects[0].object.userData.index;
+                openSidebar(idx);
+                sidebarJustOpenedFromGlobe = true;
+                setTimeout(() => { sidebarJustOpenedFromGlobe = false; }, 100);
+                if (autoZoomEnabled) {
+                    if (!autoZoom3DCameraStart) {
+                        autoZoom3DCameraStart = { pos: camera.position.clone(), target: controls.target.clone() };
+                    }
+                    // Скрываем все маркеры, кроме выбранного
+                    markers3D.forEach((m, i) => {
+                        if (i !== idx) m.visible = false;
+                    });
+                    autoZoom3DMarkerIndex = idx;
+                    const markerPos = markers3D[idx].position.clone();
+                    animateCameraToMarker(markerPos, 3.8, 600);
+                }
+            }
+        }
 
-    // Если мышь сдвинулась или нажатие было долгим – это не клик
-    if (pointerMoved || dist > 0.03 || dt > 400) {
-        return;
-    }
-
-    // Используем координаты нажатия для точного попадания
-    camera.updateMatrixWorld();
-    raycaster.setFromCamera(pointerDownPos, camera);
-    const visibleMarkers = markers3D.filter(m => m.visible);
-    const intersects = raycaster.intersectObjects(visibleMarkers);
-    console.log('click intersects:', intersects.length);
-    if (intersects.length > 0) {
-    const idx = intersects[0].object.userData.index;
-    openSidebar(idx);
-    sidebarJustOpenedFromGlobe = true;
-    setTimeout(() => { sidebarJustOpenedFromGlobe = false; }, 100);
-}
-}
-
+        // ========== ПЕРЕКЛЮЧЕНИЕ МЕЖДУ 2D И 3D ==========
         async function toggleGlobeMode() {
             if (!dataLoaded) { alert("Данные ещё загружаются..."); return; }
             if (!globeMode) {
+                // Переход в режим глобуса
                 if (controls && camera) {
                     savedGlobePosition = camera.position.clone();
                     savedGlobeTarget = controls.target.clone();
@@ -709,7 +852,6 @@ function onPointerUp(event) {
                 toggleShadeBtn.style.display = "inline-block";
                 container.style.display = "none";
                 globeContainer.style.display = "block";
-                
                 const success = await initGlobe(false);
                 if (!success) {
                     globeMode = false;
@@ -727,6 +869,7 @@ function onPointerUp(event) {
                 };
                 toggleShadeBtn.textContent = shadeEnabled ? "Затенение" : "Затенение выкл";
             } else {
+                // Возврат к плоской карте
                 if (controls && camera) {
                     savedGlobePosition = camera.position.clone();
                     savedGlobeTarget = controls.target.clone();
@@ -737,9 +880,9 @@ function onPointerUp(event) {
                 globeContainer.style.display = "none";
                 container.style.display = "block";
                 renderer?.domElement.removeEventListener('mousemove', onMouseMove);
-renderer?.domElement.removeEventListener('pointerdown', onPointerDown);
-renderer?.domElement.removeEventListener('pointerup', onPointerUp);
-window.removeEventListener('pointermove', onPointerMove);
+                renderer?.domElement.removeEventListener('pointerdown', onPointerDown);
+                renderer?.domElement.removeEventListener('pointerup', onPointerUp);
+                window.removeEventListener('pointermove', onPointerMove);
                 destroyGlobe();
                 applyFilter();
                 setCoverAndCenter2D();
@@ -748,7 +891,7 @@ window.removeEventListener('pointermove', onPointerMove);
             }
         }
 
-        // ========== 2D СОБЫТИЯ ==========
+        // ========== 2D СОБЫТИЯ (панорамирование, зум колёсиком, тач) ==========
         function init2DEvents() {
             container.addEventListener('wheel', (e) => {
                 e.preventDefault();
@@ -772,7 +915,7 @@ window.removeEventListener('pointermove', onPointerMove);
                 if (!isDragging) return;
                 e.preventDefault();
                 translateX = lastTranslateX + (e.clientX - startX);
-dragJustHappened = true;
+                dragJustHappened = true;
                 translateY = lastTranslateY + (e.clientY - startY);
                 clampTranslate2D();
                 updateTransform2D();
@@ -806,25 +949,28 @@ dragJustHappened = true;
             });
         }
 
-        // ========== ИНИЦИАЛИЗАЦИЯ ==========
+        // ========== ИНИЦИАЛИЗАЦИЯ (закрытие сайдбара, фильтр, кнопки) ==========
         closeSidebar.addEventListener('click', () => {
-    sidebar.classList.remove('open');
-    if (autoZoomEnabled && autoZoomTarget) restoreAutoZoom();
-});
+            sidebar.classList.remove('open');
+            if (autoZoomEnabled) {
+                if (autoZoomTarget) restoreAutoZoom2D();
+                if (autoZoom3DCameraStart) restoreAutoZoom3D();
+            }
+        });
         document.addEventListener('click', (e) => {
-    if (!sidebar.classList.contains('open') || sidebar.contains(e.target)) return;
-    if (e.target.classList?.contains('marker')) return;
-    if (sidebarJustOpenedFromGlobe) return;
-
-    // Если перед этим перемещали карту (drag) – не закрываем
-    if (dragJustHappened) {
-        dragJustHappened = false;
-        return;
-    }
-
-    sidebar.classList.remove('open');
-    if (autoZoomEnabled && autoZoomTarget) restoreAutoZoom();
-});
+            if (!sidebar.classList.contains('open') || sidebar.contains(e.target)) return;
+            if (e.target.classList?.contains('marker')) return;
+            if (sidebarJustOpenedFromGlobe) return;
+            if (dragJustHappened) {
+                dragJustHappened = false;
+                return;
+            }
+            sidebar.classList.remove('open');
+            if (autoZoomEnabled) {
+                if (autoZoomTarget) restoreAutoZoom2D();
+                if (autoZoom3DCameraStart) restoreAutoZoom3D();
+            }
+        });
         
         let filterMenuOpen = false;
         filterIcon.addEventListener('click', (e) => {
@@ -844,17 +990,38 @@ dragJustHappened = true;
         });
         
         toggleGlobeBtn.addEventListener('click', toggleGlobeMode);
-const toggleAutoZoomBtn = document.getElementById('toggle-auto-zoom-btn');
-toggleAutoZoomBtn.addEventListener('click', () => {
-    autoZoomEnabled = !autoZoomEnabled;
-    toggleAutoZoomBtn.textContent = autoZoomEnabled ? 'Авто. приближение вкл.' : 'Авто. приближение выкл.';
-    // Если выключили во время активного приближения – возвращаем исходное
-    if (!autoZoomEnabled && autoZoomTarget) restoreAutoZoom();
-});
+        const toggleAutoZoomBtn = document.getElementById('toggle-auto-zoom-btn');
+        // Устанавливаем начальное состояние: авто-приближение выключено, текст кнопки соответствует
+        autoZoomEnabled = false;
+        toggleAutoZoomBtn.textContent = 'Авто. приближение выкл.';
+        toggleAutoZoomBtn.addEventListener('click', () => {
+            autoZoomEnabled = !autoZoomEnabled;
+            toggleAutoZoomBtn.textContent = autoZoomEnabled ? 'Авто. приближение вкл.' : 'Авто. приближение выкл.';
+            if (!autoZoomEnabled) {
+                if (autoZoomTarget) restoreAutoZoom2D();
+                if (autoZoom3DCameraStart) restoreAutoZoom3D();
+            }
+        });
         toggleShadeBtn.style.display = "none";
         
-        if (mapImg.complete) { setCoverAndCenter2D(); loadMarkersFromExcel(); }
-        else mapImg.onload = () => { setCoverAndCenter2D(); loadMarkersFromExcel(); };
+        // Синхронизация размеров оверлея с картой (чтобы наложение не искажалось)
+        function syncOverlaySize() {
+            if (mapOverlay && mapImg.complete) {
+                mapOverlay.style.width = mapImg.naturalWidth + 'px';
+                mapOverlay.style.height = mapImg.naturalHeight + 'px';
+            }
+        }
+        mapImg.onload = () => {
+            setCoverAndCenter2D();
+            syncOverlaySize();
+            loadMarkersFromExcel();
+        };
+        if (mapImg.complete) {
+            setCoverAndCenter2D();
+            syncOverlaySize();
+            loadMarkersFromExcel();
+        }
+        mapOverlay.onerror = () => { mapOverlay.style.display = 'none'; };
         init2DEvents();
     </script>
 </body>
